@@ -1,0 +1,173 @@
+Subject: Never set the receiver volume
+
+The sender sent "volume: 0.000000" twice at SETUP when audio was on, and
+unmute sent it again. 0 dB is full scale in AirPlay. Samsung TVs map AirPlay
+volume onto the TV speaker volume, so one test session left a 2018 Samsung
+(UNU710D) at volume 100. Drop the setup SET_PARAMETER, make SetAudioMuted
+refuse, and update the tests. Applies on top of 0001. LGPL-3.0-or-later, as
+upstream.
+
+diff --git a/internal/airplay/mirror.go b/internal/airplay/mirror.go
+index c92b3b4..d662905 100644
+--- a/internal/airplay/mirror.go
++++ b/internal/airplay/mirror.go
+@@ -1143,32 +1143,11 @@ func (c *AirPlayClient) setupMirrorSessionOnce(ctx context.Context, cfg StreamCo
+ 		return nil, err
+ 	}
+ 
+-	// Only set the receiver's volume when this session actually carries audio.
+-	// `volume: 0.000000` is 0 dB — full scale in AirPlay, not silence — so a
+-	// video-only session would force the receiver to maximum on every connect.
+-	// Sending -144 instead would be equally destructive of the user's setting;
+-	// a session that transmits no audio has no use for the receiver's audio
+-	// state and should leave its volume untouched.
+-	if cfg.NoAudio {
+-		dbg("[SETUP] no-audio session: skipping SET_PARAMETER volume")
+-	} else {
+-		// Positive dB values are invalid here and current receivers may
+-		// interpret them as zero gain. Real senders send the sender's own
+-		// slider value; 0 dB is this sender's fixed choice.
+-		volumeBody := audioVolumeBody(false)
+-		if _, _, err := setupRTSPRequest("SET_PARAMETER", audioURI, "text/parameters", volumeBody, nil); err != nil {
+-			if !controlConnectionUsable {
+-				return nil, fmt.Errorf("SET_PARAMETER volume: %w", err)
+-			}
+-			dbg("[SETUP] SET_PARAMETER volume failed (non-fatal): %v", err)
+-		} else {
+-			dbg("[SETUP] SET_PARAMETER volume=0 sent")
+-		}
+-		// Send volume twice (pcap shows real senders do this)
+-		if _, _, err := setupRTSPRequest("SET_PARAMETER", audioURI, "text/parameters", volumeBody, nil); err != nil && !controlConnectionUsable {
+-			return nil, fmt.Errorf("repeat SET_PARAMETER volume: %w", err)
+-		}
+-	}
++	// Never set the receiver's volume. TVs such as Samsung map AirPlay volume
++	// onto their own speaker volume, and 0 dB (this sender's only value) is
++	// full scale: a 2018 Samsung was left at volume 100 after one session.
++	// The TV keeps whatever level its own remote set.
++	dbg("[SETUP] leaving receiver volume untouched")
+ 
+ 	if timingProtocol == timingProtocolPTP {
+ 		// PTP uses the receiver's fixed 319/320 ports. The first socket was only
+@@ -2436,32 +2415,11 @@ func (s *MirrorSession) HasAudio() bool {
+ 	return s.audioStream != nil
+ }
+ 
+-// SetAudioMuted updates mirrored audio volume on the receiver.
+-// AirPlay uses SET_PARAMETER volume where 0 dB is max and -144 dB is muted.
++// SetAudioMuted always refuses. Muting would mean writing the receiver's
++// volume, and unmuting would write 0 dB, which is full scale on TVs that map
++// AirPlay volume onto their speakers. The TV's own remote controls volume.
+ func (s *MirrorSession) SetAudioMuted(muted bool) error {
+-	if s == nil || s.client == nil || s.sessionURI == "" {
+-		return fmt.Errorf("audio control unavailable")
+-	}
+-	// A session started with audio disabled must not write the receiver's
+-	// volume either: unmuting sends 0 dB — full scale — which would discard
+-	// whatever the user had set, exactly as the setup path once did. The
+-	// session negotiates an audio stream even in this mode, so HasAudio() is
+-	// not sufficient to tell the two apart.
+-	if s.noAudio {
+-		return fmt.Errorf("audio control unavailable: session was started with audio disabled")
+-	}
+-
+-	if _, _, err := s.client.rtspRequest("SET_PARAMETER", s.sessionURI, "text/parameters", audioVolumeBody(muted), nil); err != nil {
+-		return fmt.Errorf("set audio muted=%t: %w", muted, err)
+-	}
+-	return nil
+-}
+-
+-func audioVolumeBody(muted bool) []byte {
+-	if muted {
+-		return []byte("volume: -144.000000\r\n")
+-	}
+-	return []byte("volume: 0.000000\r\n")
++	return fmt.Errorf("audio mute unavailable: receiver volume is left to the receiver's own controls")
+ }
+ 
+ // AudioStream returns the audio stream for this session (may be nil).
+diff --git a/internal/airplay/mirror_setup_test.go b/internal/airplay/mirror_setup_test.go
+index 30c6cd6..b721f32 100644
+--- a/internal/airplay/mirror_setup_test.go
++++ b/internal/airplay/mirror_setup_test.go
+@@ -981,20 +981,6 @@ func TestModernAudioStreamFields(t *testing.T) {
+ 	}
+ }
+ 
+-func TestAudioVolumeBody(t *testing.T) {
+-	for _, test := range []struct {
+-		muted bool
+-		want  string
+-	}{
+-		{want: "volume: 0.000000\r\n"},
+-		{muted: true, want: "volume: -144.000000\r\n"},
+-	} {
+-		if got := string(audioVolumeBody(test.muted)); got != test.want {
+-			t.Errorf("audioVolumeBody(%t) = %q, want %q", test.muted, got, test.want)
+-		}
+-	}
+-}
+-
+ func TestSetupMirrorNoAudioStillNegotiatesAudioSession(t *testing.T) {
+ 	SetTargetLatency(0)
+ 	t.Cleanup(func() {
+@@ -1014,9 +1000,9 @@ func TestSetupMirrorNoAudioStillNegotiatesAudioSession(t *testing.T) {
+ 	}
+ }
+ 
+-// A session that DOES carry audio must still set the receiver's volume, so the
+-// -no-audio guard narrows that behaviour rather than removing it.
+-func TestSetupMirrorWithAudioSetsReceiverVolume(t *testing.T) {
++// A session that carries audio must not touch the receiver's volume either:
++// the expected request list below has no SET_PARAMETER.
++func TestSetupMirrorWithAudioLeavesReceiverVolume(t *testing.T) {
+ 	for _, test := range []struct {
+ 		name       string
+ 		skipRecord bool
+@@ -1038,20 +1024,18 @@ func TestSetupMirrorControlFirstRecordsAfterStreamSetup(t *testing.T) {
+ 	})
+ }
+ 
+-// A no-audio session must not be able to write the receiver's volume through
+-// the daemon's mute control either: unmuting sends 0 dB, which is full scale.
+-func TestSetAudioMutedRefusesWhenSessionHasNoAudio(t *testing.T) {
+-	for _, muted := range []bool{true, false} {
+-		session := &MirrorSession{client: &AirPlayClient{}, sessionURI: "rtsp://example/session", noAudio: true}
+-		err := session.SetAudioMuted(muted)
+-		if err == nil {
+-			t.Fatalf("SetAudioMuted(%v) = nil, want a refusal for a no-audio session", muted)
+-		}
+-		// Assert the REASON, not merely that something failed: without the
+-		// guard this call still errors (no connection), so an error alone
+-		// would pass on the unfixed code.
+-		if !strings.Contains(err.Error(), "audio disabled") {
+-			t.Fatalf("SetAudioMuted(%v) error = %q, want a refusal naming the disabled audio", muted, err)
++// The daemon's mute control must never write the receiver's volume, with or
++// without audio: unmuting would send 0 dB, which is full scale.
++func TestSetAudioMutedNeverWritesReceiverVolume(t *testing.T) {
++	for _, noAudio := range []bool{true, false} {
++		for _, muted := range []bool{true, false} {
++			session := &MirrorSession{client: &AirPlayClient{}, sessionURI: "rtsp://example/session", noAudio: noAudio}
++			err := session.SetAudioMuted(muted)
++			// Assert the reason: without a connection the old code also
++			// errored, so an error alone would pass on the unfixed code.
++			if err == nil || !strings.Contains(err.Error(), "receiver volume is left") {
++				t.Fatalf("SetAudioMuted(%v) with noAudio=%v = %v, want the volume refusal", muted, noAudio, err)
++			}
+ 		}
+ 	}
+ }
+@@ -1433,12 +1417,7 @@ func testSetupMirrorAudioSessionNegotiation(t *testing.T, test audioSessionCase)
+ 		recordIndex = len(wantMethods)
+ 		wantMethods = append(wantMethods, "RECORD")
+ 	}
+-	// The two volume SET_PARAMETERs are sent only when the session carries
+-	// audio: `volume: 0.000000` is 0 dB — full scale — so a video-only
+-	// session would force the receiver to maximum.
+-	if !noAudio {
+-		wantMethods = append(wantMethods, "SET_PARAMETER", "SET_PARAMETER")
+-	}
++	// No SET_PARAMETER volume, with or without audio: 0 dB is full scale.
+ 	wantMethods = append(wantMethods, "POST", "TEARDOWN")
+ 	got := make([]rtspTestRequest, 0, len(wantMethods))
+ 	for range wantMethods {
