@@ -144,9 +144,9 @@ def test_setting_tiles_lock_while_mirroring(app):
 def test_gui_options_follow_settings(app):
     root = app.root
     assert pump(root, lambda: app.displays and app.audio_capable)
-    app._set("quality", "Weak Wi-Fi")
-    app._set("encoder", "none")
-    app._set("sound", False)
+    app._set(quality="Weak Wi-Fi")
+    app._set(encoder="none")
+    app._set(sound=False)
     opts = app._options()
     assert opts == {
         "fps": 30,
@@ -157,3 +157,30 @@ def test_gui_options_follow_settings(app):
     }
     saved = json.loads(app.settings_path.read_text("utf-8"))
     assert saved["quality"] == "Weak Wi-Fi" and saved["encoder"] == "none"
+
+
+def test_gui_scans_a_remembered_tv_that_mdns_doesnt_list(tk_root, tmp_path, monkeypatch):
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        json.dumps({"tv": "old", "tv_ip": "10.9.9.9", "tv_name": "Old TV"}), "utf-8"
+    )
+    scanned = []
+    monkeypatch.setattr("airmirror.app.probe.find_port", lambda ip: scanned.append(ip) or 4242)
+    app = App(
+        tk.Toplevel(tk_root),
+        argv=[sys.executable, FAKE],
+        auto_refresh=False,
+        settings_path=settings,
+    )
+    app.on_streaming_started = app.on_streaming_stopped = lambda: None
+    try:
+        assert app.tv["name"] == "Old TV"  # shown before any mDNS reply
+        assert pump(app.root, lambda: app.searched)
+        assert app.tv["ip"] == "10.9.9.9"  # the fake's other TV doesn't replace it
+        app.start()
+        assert pump(app.root, lambda: app.pin_dialog is not None)
+        assert scanned == ["10.9.9.9"]
+        assert app.probed == ("10.9.9.9", 4242)
+        assert app.target == "10.9.9.9"
+    finally:
+        app.close()

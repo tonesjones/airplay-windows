@@ -90,6 +90,11 @@ To stop mirroring, click **Stop mirroring**. Closing the window also stops mirro
 Click a tile to turn it on or off, or to pick a value. The window remembers your TV and your
 choices in `%APPDATA%\AirMirror\settings.json`.
 
+After a session ends, the Samsung can stop announcing itself on the network for a few minutes.
+The window still shows the last TV you mirrored to. When you click **Start mirroring**, it asks
+that TV for its AirPlay port directly, and it keeps asking until the TV answers or you click
+**Cancel**.
+
 | Tile | What it does |
 |---|---|
 | **TV sound** | Sends the PC's sound to the TV. To capture a device other than the default output, click the arrow on the tile. |
@@ -121,7 +126,7 @@ To list your displays or the AirPlay devices on your network, run
 
 ## Fix common problems
 
-**The TV isn't in the list, or the window shows "Not found" next to it.**
+**The TV isn't in the list.**
 - Check that the TV is on.
 - Check that AirPlay is on in **Settings > General > Apple AirPlay Settings**.
 - Check that the PC is on the same network as the TV.

@@ -20,7 +20,7 @@ from pathlib import Path
 from tkinter import font as tkfont
 from typing import NamedTuple
 
-from . import keepawake, ui
+from . import keepawake, probe, ui
 from .pcmute import SpeakerMute
 from .sender import SenderError, SenderProcess, list_audio_devices
 
@@ -32,6 +32,7 @@ QUALITY = {
 ENCODERS = {"nvenc": "NVENC", "auto": "Auto", "none": "Software"}
 DEFAULT_AUDIO = "Default output"
 REFRESH_MS = 5000
+PROBE_RETRY_S = 15  # wait between direct scans of a TV that mDNS doesn't list
 MAX_LOG_LINES = 1000
 WIDTH, HEIGHT = 400, 420
 SETTINGS_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "AirMirror" / "settings.json"
@@ -75,6 +76,8 @@ def default_encoder() -> str:
 def load_settings(path: Path) -> dict:
     settings = {
         "tv": "",
+        "tv_ip": "",
+        "tv_name": "",
         "sound": True,
         "mute_pc": True,
         "keep_awake": True,
@@ -142,6 +145,17 @@ class App:
         self.speaker: SpeakerMute | None = None
         self.awake = False
         self.hover: str | None = None
+        self.probing = False
+        self.last_probe = 0.0
+        self.probed: tuple[str, int] | None = None  # (ip, port) a direct scan found
+        self.start_when_found = False
+        if self.settings["tv_ip"]:
+            # Show the last TV right away: it can stay silent over mDNS for minutes.
+            self.tv = {
+                "name": self.settings["tv_name"] or "TV",
+                "ip": self.settings["tv_ip"],
+                "device_id": self.settings["tv"],
+            }
 
         self.dark = ui.windows_uses_dark()
         self.c = ui.DARK if self.dark else ui.LIGHT
@@ -202,8 +216,8 @@ class App:
             self._log(f"[keep awake] {exc}")
 
     # -- settings ---------------------------------------------------------
-    def _set(self, key: str, value) -> None:
-        self.settings[key] = value
+    def _set(self, **changes) -> None:
+        self.settings.update(changes)
         try:
             self.settings_path.parent.mkdir(parents=True, exist_ok=True)
             self.settings_path.write_text(json.dumps(self.settings, indent=2), "utf-8")
@@ -269,8 +283,6 @@ class App:
         self._text(
             66, 40, self._fit(name, 11, WIDTH - 190, bold=True), ink, size=11, bold=True, tag="tv"
         )
-        if self.tv and self.searched and not self._tv_found() and not locked:
-            self._text(WIDTH - 56, 40, "Not found", c["muted"], size=9, anchor="e", tag="tv")
         if not locked:
             self._text(
                 WIDTH - 36, 40, GLYPH["down"], c["muted"], size=10, anchor="e", tag="tv", icon=True
@@ -457,13 +469,13 @@ class App:
         if not next(t for t in self._tiles() if t.key == key).enabled:
             return
         if key == "sound":
-            self._set("sound", not self.settings["sound"])
+            self._set(sound=not self.settings["sound"])
         elif key == "mute_pc":
-            self._set("mute_pc", not self.settings["mute_pc"])
+            self._set(mute_pc=not self.settings["mute_pc"])
             if self.streaming:
                 self._mute_pc(self.settings["mute_pc"])
         elif key == "keep_awake":
-            self._set("keep_awake", not self.settings["keep_awake"])
+            self._set(keep_awake=not self.settings["keep_awake"])
             if self.streaming:
                 self._keep_awake(self.settings["keep_awake"])
         elif key == "quality":
@@ -509,7 +521,7 @@ class App:
         current = self._display_index() if key == "display" else self.settings[key]
         for value, label in choices:
             mark = "✓  " if value == current else "     "
-            menu.add_command(label=mark + label, command=lambda v=value: self._set(key, v))
+            menu.add_command(label=mark + label, command=lambda v=value: self._set(**{key: v}))
         return menu
 
     def _tv_menu(self) -> tk.Menu:
@@ -536,11 +548,11 @@ class App:
     def _choose_tv(self, device: dict) -> None:
         self.tv = device
         self._error_text = None
-        self._set("tv", tv_id(device))
+        self._remember_tv()
 
     def _choose_audio(self, audio_id: str) -> None:
         if audio_id != self.settings["audio_id"]:
-            self._set("audio_id", audio_id)
+            self._set(audio_id=audio_id)
             self._restart_sender()
 
     # -- log --------------------------------------------------------------
@@ -730,6 +742,9 @@ class App:
             return
         if not self.active:
             self.refresh_receivers()
+            stale = time.monotonic() - self.last_probe > PROBE_RETRY_S
+            if self.searched and self._tv_port() is None and stale:
+                self._probe()
         self.root.after(REFRESH_MS, self._auto_refresh)
 
     def _set_receivers(self, devices) -> None:
@@ -743,8 +758,50 @@ class App:
             self._choose_tv(devices[0])
         self.render()
 
-    def _tv_found(self) -> bool:
-        return bool(self.tv) and any(tv_id(d) == tv_id(self.tv) for d in self.receivers)
+    def _listed(self) -> dict | None:
+        if not self.tv:
+            return None
+        return next((d for d in self.receivers if tv_id(d) == tv_id(self.tv)), None)
+
+    def _tv_port(self) -> int | None:
+        """The TV's AirPlay port from mDNS, else from a direct scan, else None."""
+        listed = self._listed()
+        if listed:
+            return listed.get("port") or None
+        if self.tv and self.probed and self.probed[0] == self.tv["ip"]:
+            return self.probed[1]
+        return None
+
+    def _remember_tv(self) -> None:
+        self._set(tv=tv_id(self.tv), tv_ip=self.tv["ip"], tv_name=self.tv.get("name", ""))
+
+    def _probe(self) -> None:
+        if self.probing or not self.tv:
+            return
+        self.probing = True
+        self.last_probe = time.monotonic()
+        ip = self.tv["ip"]
+
+        def work():
+            port = probe.find_port(ip)
+            self.events.put((self.generation, "call", lambda: self._probed(ip, port)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _probed(self, ip: str, port: int | None) -> None:
+        self.probing = False
+        if not self.tv or self.tv["ip"] != ip:
+            return
+        if port:
+            self.probed = (ip, port)
+            self._log(f"[probe] {self.tv.get('name', ip)} answered directly on port {port}")
+        if self.start_when_found:
+            if port:
+                self.start_when_found = False
+                self.active = False
+                self.start()
+            else:
+                self._probe()  # keep trying quietly until it answers or Cancel
 
     # -- start / stop -----------------------------------------------------
     def _options(self) -> dict:
@@ -764,10 +821,15 @@ class App:
         self.target_name = self.tv.get("name", "")
         self.shown_errors.clear()
         self._error_text = None
-        port = self.tv.get("port") or None  # always the discovered port; TVs often aren't on 7000
-        opts, target = self._options(), self.target
         self.active = True
         self.render()
+        # Always the discovered port: the Samsung's changes on every reboot, and it's never 7000.
+        port = self._tv_port()
+        if port is None:
+            self.start_when_found = True
+            self._probe()
+            return
+        opts, target = self._options(), self.target
         self._bg(lambda: self.sender.connect(target, port, opts), self._connect_reply)
 
     def _connect_reply(self, reply) -> None:
@@ -779,6 +841,11 @@ class App:
             self.render()
 
     def stop(self) -> None:
+        if self.start_when_found:
+            self.start_when_found = False
+            self.active = False
+            self.render()
+            return
         target = self.target
         self._bg(lambda: self.sender.disconnect(target))
 
@@ -803,6 +870,8 @@ class App:
                 self.shown_errors.add(key)
                 self._log(f"[error kind={key[1]}] {err.get('message', '')}")
                 self._error_text = error_text(key[1], err.get("device") or self.target_name)
+                if key[1] == "unreachable":
+                    self.probed = None  # the port may have changed; scan again next time
         if mine is not None:
             self.active = True
             if not mine.get("audio_error"):
@@ -815,6 +884,7 @@ class App:
         if value and not self.streaming:
             self.streaming = True
             self.stream_started = time.monotonic()
+            self._remember_tv()
             self.on_streaming_started()
             self.root.after(1000, self._tick)
         elif not value and self.streaming:
