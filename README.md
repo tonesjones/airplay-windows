@@ -16,7 +16,8 @@ window, AirMirror.
 ## Status
 
 Mirroring works on a Samsung 7 Series 55" (model UNU710D, 2018): a live 1920x1080 desktop at
-30 fps, the PC's sound from the TV speakers, and no pairing code after the first connection.
+30 fps, the PC's sound from the TV speakers, and, with the TV set to **First Time Only**, no
+pairing code after the first connection.
 That is the only TV tested so far.
 
 That result came from the command line. The AirMirror window passes its tests against a
@@ -34,8 +35,10 @@ You need:
 - The PC and the TV on the same home network. The PC can be on 5 GHz and the TV on 2.4 GHz, as
   long as both connect to the same router and not to a guest network.
 
-On the TV, open **Settings > General > Apple AirPlay Settings** and set **Require Code** to
-**First Time Only**. With **Every Time**, the TV asks for a new code on every connection.
+By default, the TV shows a new code on every connection, and you type it in each time. To have
+it ask only the first time, change a setting on the TV itself. This repo can't change it for
+you. On the TV, open **Settings > General > Apple AirPlay Settings** and set **Require Code** to
+**First Time Only**.
 
 ## Set up
 
@@ -71,9 +74,12 @@ Don't run setup while you're mirroring, because it rebuilds the sender that's ru
 3. Check that the box at the top shows your TV. If you have more than one AirPlay device, click
    the box and pick the TV.
 4. Click **Start mirroring**.
-5. The first time you connect, the TV shows a 4-digit code. Type it into the window and click
-   **Connect**. The sender saves the pairing in Windows Credential Manager, so later connections
-   skip this step.
+5. The TV shows a 4-digit code. Type it into the window and click **Connect**.
+
+   How often this step comes back depends on the TV's **Require Code** setting (see
+   [Before you start](#before-you-start)). With **Every Time**, the default, the TV asks on every
+   connection. With **First Time Only**, the sender saves the pairing in Windows Credential
+   Manager, and later connections skip this step.
 
    ![The code prompt asking for the code shown on the TV](docs/screenshots/code-dark.png)
 
