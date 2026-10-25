@@ -11,7 +11,7 @@ diff --git a/internal/airplay/mirror.go b/internal/airplay/mirror.go
 index c92b3b4..d662905 100644
 --- a/internal/airplay/mirror.go
 +++ b/internal/airplay/mirror.go
-@@ -1143,32 +1143,11 @@ func (c *AirPlayClient) setupMirrorSessionOnce(ctx context.Context, cfg StreamCo
+@@ -1143,32 +1143,10 @@ func (c *AirPlayClient) setupMirrorSessionOnce(ctx context.Context, cfg StreamCo
  		return nil, err
  	}
  
@@ -43,13 +43,12 @@ index c92b3b4..d662905 100644
 -	}
 +	// Never set the receiver's volume. TVs such as Samsung map AirPlay volume
 +	// onto their own speaker volume, and 0 dB (this sender's only value) is
-+	// full scale: a 2018 Samsung was left at volume 100 after one session.
-+	// The TV keeps whatever level its own remote set.
++	// full scale. The TV keeps whatever level its own remote set.
 +	dbg("[SETUP] leaving receiver volume untouched")
  
  	if timingProtocol == timingProtocolPTP {
  		// PTP uses the receiver's fixed 319/320 ports. The first socket was only
-@@ -2436,32 +2415,11 @@ func (s *MirrorSession) HasAudio() bool {
+@@ -2436,32 +2414,11 @@ func (s *MirrorSession) HasAudio() bool {
  	return s.audioStream != nil
  }
  
@@ -124,7 +123,7 @@ index 30c6cd6..b721f32 100644
  	for _, test := range []struct {
  		name       string
  		skipRecord bool
-@@ -1038,20 +1024,18 @@ func TestSetupMirrorControlFirstRecordsAfterStreamSetup(t *testing.T) {
+@@ -1038,20 +1024,17 @@ func TestSetupMirrorControlFirstRecordsAfterStreamSetup(t *testing.T) {
  	})
  }
  
@@ -149,15 +148,14 @@ index 30c6cd6..b721f32 100644
 +		for _, muted := range []bool{true, false} {
 +			session := &MirrorSession{client: &AirPlayClient{}, sessionURI: "rtsp://example/session", noAudio: noAudio}
 +			err := session.SetAudioMuted(muted)
-+			// Assert the reason: without a connection the old code also
-+			// errored, so an error alone would pass on the unfixed code.
++			// Check the reason: an unconnected session errors either way.
 +			if err == nil || !strings.Contains(err.Error(), "receiver volume is left") {
 +				t.Fatalf("SetAudioMuted(%v) with noAudio=%v = %v, want the volume refusal", muted, noAudio, err)
 +			}
  		}
  	}
  }
-@@ -1433,12 +1417,7 @@ func testSetupMirrorAudioSessionNegotiation(t *testing.T, test audioSessionCase)
+@@ -1433,12 +1416,7 @@ func testSetupMirrorAudioSessionNegotiation(t *testing.T, test audioSessionCase)
  		recordIndex = len(wantMethods)
  		wantMethods = append(wantMethods, "RECORD")
  	}

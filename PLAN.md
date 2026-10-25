@@ -139,8 +139,9 @@ TV, the fallback is a browser stream that the TV opens.
     instead of NVENC, the TV not freshly rebooted, and "require code every time". Test libx264 again
     before choosing the GUI default; until then, default the encoder to `nvenc` when present.
   - **The TV's AirPlay stops advertising after a session ends badly** (a reset, or the sender being
-    killed). Only a TV restart (hold power) brought it back. The GUI must always stop with a clean
-    `disconnect`, and the README needs a "TV not found → restart the TV" step.
+    killed). Turning the TV off and on with the remote brought it back after a minute or two. The
+    GUI must always stop with a clean `disconnect`, and the README needs a "TV not found →
+    turn the TV off and on" step.
   - The Samsung's AirPlay port changes after every TV reboot (34247, then 44559). Always use the
     discovered port.
 - The session was driven by `tv_test.py`, a scratch driver (untracked, repo root). It mirrors over
