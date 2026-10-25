@@ -1,0 +1,19 @@
+# Built and fetched by setup.ps1
+bin/
+third_party/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Diagnostics output can hold device names; share it on purpose, never commit it
+diagnostics/
+
+# Secrets and pairing credentials
+.env
+*.env
+credentials.json
+*.credentials.json
