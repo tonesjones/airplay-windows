@@ -107,6 +107,24 @@ TV, the fallback is a browser stream that the TV opens.
   - The user allowed the firewall prompts. `bin\open-airplay.exe` now has inbound **Allow** rules
     (Public profile). The network is still Public; switching to Private is optional.
 
+- 2026-10-25 **first real TV test** (Samsung UNU710D, 2018), driven over `-stdio` from a scratch script:
+  - Transient pairing was refused (M4 error 2), then the TV showed a PIN. The PIN pair-setup and
+    pair-verify both worked.
+  - FPSAP isn't advertised, so FairPlay was skipped. The TV chose NTP timing, and its NTP requests
+    reached the PC.
+  - The TV offered a 1920x1080@30 canvas. Audio was ALAC 44.1 kHz. SETUP x3 and RECORD succeeded,
+    and the state reached `streaming`.
+  - About 1 s after the first IDR (libx264, High@4.0, multi-slice), **the TV closed the video data
+    channel with a TCP reset**. It went back to the previous programme with no picture. Afterwards
+    its AirPlay service stopped advertising, and the next connect to the old port was refused.
+  - **Bug: the TV volume was left at 100.** The sender sent `SET_PARAMETER volume: 0.000000`
+    (0 dB is full scale) twice at SETUP, and Samsung maps that onto the speaker volume. Fixed by
+    `patches/0002-never-set-receiver-volume.patch`: no volume writes at all, and mute refuses.
+  - Suspects for the reset, not yet tested:
+    - video key derivation or key mixing, the same symptom as doubletake issue #56 (Xiaomi);
+    - multi-slice frames from x264 `sliced-threads`, to be tested with `hwaccel=nvenc`;
+    - an AirTunes version difference from the TU8300 that works.
+
 ## Next action
 
 1. Main: review and merge the three session PRs. Then wire `pcmute` and `keepawake` (branch
