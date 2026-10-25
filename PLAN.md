@@ -85,13 +85,27 @@ TV, the fallback is a browser stream that the TV opens.
   - WASAPI loopback still captures a muted endpoint (GStreamer issue #1306). `airmirror/pcmute.py`
     mutes and restores the default speakers. Tested on this PC.
 
+- 2026-10-25 T3 follow-up, run from the Terminal panel (outside the agent sandbox):
+  - **TV found:** `Samsung 7 Series (55)`, model `UNU710D`, at `192.168.0.45:34247`,
+    mirroring=yes. The agent sandbox blocks LAN and mDNS, so run discovery from a real terminal.
+    The port isn't 7000, so `-target` alone won't reach it without `-port`.
+  - Windows Firewall has two **Block** rules named `open-airplay` (Public, inbound). They were probably
+    created when the first-run prompt went unanswered. They will block the TV's NTP timing traffic
+    back to the PC.
+  - Capture still failed: the user had been idle for 44 minutes and the monitor was asleep. ddagrab,
+    gfxcapture and gdigrab all stall or crawl with the display off. `keepawake.hold()` doesn't wake a
+    sleeping display; it only keeps an awake one on.
+  - Added `airmirror/keepawake.py`, which keeps the display on while mirroring (branch `pc-mute`).
+
 ## Next action
 
-1. User: set the Wi-Fi network to **Private** (Settings → Network & internet → Wi-Fi → your network →
-   Network profile type → Private). Turn the TV on, and keep this PC's screen on.
-2. Main: rerun `bin\open-airplay.exe -display 0 -capture-smoke` and `-list-receivers`, then the
-   fixture session with audio (`bin\doubletake-test-receiver.exe -profile modern`).
-3. Main: review and merge the three session PRs, then wire `pcmute` into the GUI.
+1. User, at the PC, from an **admin** PowerShell:
+   `Set-NetConnectionProfile -InterfaceAlias Wi-Fi -NetworkCategory Private`, then
+   `Get-NetFirewallRule -DisplayName open-airplay | Remove-NetFirewallRule`. Choose **Allow** on
+   Private when the firewall prompt reappears.
+2. Main, with the user at the PC and the monitor awake: rerun `bin\open-airplay.exe -display 0
+   -capture-smoke` from the Terminal panel, then the fixture session with audio.
+3. Main: review and merge the three session PRs, then wire `pcmute` and `keepawake` into the GUI.
 
 ## Open decisions
 
