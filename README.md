@@ -6,7 +6,12 @@ Miracast (`Win + K`) finds the TV but can't connect. Everything here is free and
 
 The AirPlay sender is [open-airplay](https://github.com/parsakhaz/open-airplay), a Windows port
 of [doubletake](https://github.com/omarroth/doubletake). This repo builds it from a pinned commit,
-adds two Samsung fixes in [`patches/`](patches/), and wraps it in setup scripts.
+adds two Samsung fixes in [`patches/`](patches/), and wraps it in setup scripts and a small
+window, AirMirror.
+
+| Ready to mirror (light theme) | Mirroring (dark theme) |
+|---|---|
+| ![AirMirror with the Samsung TV picked and the Start mirroring button](docs/screenshots/ready-light.png) | ![AirMirror mirroring for 12 minutes at 1920x1080 with sound](docs/screenshots/mirroring-dark.png) |
 
 ## Status
 
@@ -14,9 +19,9 @@ Mirroring works on a Samsung 7 Series 55" (model UNU710D, 2018): a live 1920x108
 30 fps, the PC's sound from the TV speakers, and no pairing code after the first connection.
 That is the only TV tested so far.
 
-Mirroring currently runs from the command line. A window with Start and Stop buttons, a
-diagnostics bundle, and a browser fallback are built but not merged yet. [`PLAN.md`](PLAN.md)
-tracks what is verified and what comes next.
+That result came from the command line. The AirMirror window passes its tests against a
+simulated sender but hasn't run against the TV yet. A diagnostics bundle and a browser fallback
+are built but not merged. [`PLAN.md`](PLAN.md) tracks what is verified and what comes next.
 
 ## Before you start
 
@@ -24,6 +29,7 @@ You need:
 
 - Windows 10 or 11, with `git` and `winget`. Setup installs Go 1.27.0 and FFmpeg 9.0.2 with
   `winget` if they are missing.
+- Python 3.12 or later, for the AirMirror window. It uses only the standard library.
 - A TV that mirrors from an iPhone with AirPlay. Samsung TVs from 2018 onward support it.
 - The PC and the TV on the same home network. The PC can be on 5 GHz and the TV on 2.4 GHz, as
   long as both connect to the same router and not to a guest network.
@@ -56,22 +62,57 @@ Don't run setup while you're mirroring, because it rebuilds the sender that's ru
 ## Mirror your desktop
 
 1. Wake the PC's screen. The PC can't capture its screen while the monitor is asleep.
-2. Start the sender:
+2. In PowerShell, from the repo folder, open the AirMirror window:
+
+   ```bash
+   py -3 -m airmirror
+   ```
+
+3. Check that the box at the top shows your TV. If you have more than one AirPlay device, click
+   the box and pick the TV.
+4. Click **Start mirroring**.
+5. The first time you connect, the TV shows a 4-digit code. Type it into the window and click
+   **Connect**. The sender saves the pairing in Windows Credential Manager, so later connections
+   skip this step.
+
+   ![The code prompt asking for the code shown on the TV](docs/screenshots/code-dark.png)
+
+6. The first time you mirror, Windows Firewall asks about `open-airplay.exe`. Allow it.
+   Mirroring needs the TV to reach the PC.
+
+The TV switches to your desktop within a few seconds, and the bar turns green. Sound plays from
+the TV. The TV keeps its own volume, so use the TV remote to change it.
+
+To stop mirroring, click **Stop mirroring**. Closing the window also stops mirroring.
+
+### Change what the tiles do
+
+Click a tile to turn it on or off, or to pick a value. The window remembers your TV and your
+choices in `%APPDATA%\AirMirror\settings.json`.
+
+| Tile | What it does |
+|---|---|
+| **TV sound** | Sends the PC's sound to the TV. To capture a device other than the default output, click the arrow on the tile. |
+| **Mute PC** | Mutes the PC's speakers while mirroring, then restores them. The TV still gets the sound. |
+| **Screen on** | Keeps the PC's monitor awake while mirroring, so the TV picture doesn't freeze. |
+| **Quality** | **Auto** lets the TV choose. **Smooth** sends 30 fps at 8 Mbps. **Weak Wi-Fi** sends 30 fps at 3 Mbps. |
+| **Encoder** | **NVENC** uses an NVIDIA graphics card. **Software** uses the CPU. **Auto** lets the sender choose. On a PC with an NVIDIA driver, the window starts on **NVENC**. |
+| **Screen** | Picks which monitor to mirror. |
+
+You can't change **TV sound**, **Quality**, **Encoder**, or **Screen** while mirroring. To
+change them, stop mirroring first. **Log** at the bottom opens the sender's log.
+
+### Mirror from the command line
+
+1. Start the sender:
 
    ```bash
    .\bin\open-airplay.exe -display 0 -hwaccel nvenc
    ```
 
    Use `-hwaccel nvenc` on an NVIDIA graphics card. On other cards, leave the flag out.
-3. Pick your TV from the list that the sender prints.
-4. The first time you connect, the TV shows a 4-digit code. Type it into PowerShell and press
-   **Enter**. The sender saves the pairing in Windows Credential Manager, so later connections
-   skip this step.
-5. The first time you mirror, Windows Firewall asks about `open-airplay.exe`. Allow it.
-   Mirroring needs the TV to reach the PC.
-
-The TV switches to your desktop within a few seconds. Sound plays from the TV. The TV keeps its
-own volume, so use the TV remote to change it.
+2. Pick your TV from the list that the sender prints.
+3. If the TV shows a code, type it into PowerShell and press **Enter**.
 
 To stop mirroring, press **Ctrl+C** in PowerShell.
 
@@ -80,22 +121,26 @@ To list your displays or the AirPlay devices on your network, run
 
 ## Fix common problems
 
-**The TV isn't in the list.**
+**The TV isn't in the list, or the window shows "Not found" next to it.**
 - Check that the TV is on.
 - Check that AirPlay is on in **Settings > General > Apple AirPlay Settings**.
 - Check that the PC is on the same network as the TV.
 - If mirroring ended badly earlier, the TV can stop announcing itself. Turn the TV off and on
   with the remote, then wait up to two minutes before you try again.
 
-**The sender says the capture "failed startup validation".** The PC's monitor is asleep. Move
-the mouse, then start again.
+**The window says it couldn't capture the screen, or the sender says the capture "failed startup
+validation".** The PC's monitor is asleep. Move the mouse, then start again.
 
 **The TV shows the code, but pairing fails.** After a wrong code, the TV drops the attempt.
-Stop with **Ctrl+C**, start again, and type the new code the TV shows.
+Click **Start mirroring** again, or in PowerShell press **Ctrl+C** and start again. Then type
+the new code the TV shows.
 
 **The picture appears, then the TV goes back to its previous input.** On the Samsung that was
-tested, this happened once with software encoding and not with `-hwaccel nvenc`. Restart the TV
-and try with `-hwaccel nvenc`. The cause isn't confirmed yet.
+tested, this happened once with software encoding and not with NVENC. Restart the TV and set
+the **Encoder** tile to **NVENC**, or use `-hwaccel nvenc`. The cause isn't confirmed yet.
+
+**The bar says "Restart".** The sender stopped. Click the bar to start it again. If it stops
+again, click **Log** and check the last lines.
 
 **The TV is found, but the connection fails.** Windows Firewall may be blocking
 `open-airplay.exe`. Open **Windows Security > Firewall & network protection > Allow an app
@@ -107,7 +152,8 @@ home network.
 
 - One TV model is tested. Other AirPlay TVs may need fixes like the ones in `patches/`.
 - The PC monitor must stay awake. Windows turns it off after its idle timeout, and the TV picture
-  then freezes. The planned window app keeps the display awake while mirroring.
+  then freezes. In the AirMirror window, the **Screen on** tile keeps the monitor awake while
+  mirroring. From the command line, change the idle timeout in Windows' power settings.
 - The tested TV accepts up to 1920x1080, so a 1440p desktop is scaled down to fit.
 - Streaming apps that protect their video can show a black area on the TV.
 

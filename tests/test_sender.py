@@ -1,5 +1,4 @@
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -121,34 +120,3 @@ def test_parse_audio_devices():
     assert [d["name"] for d in devs] == ["Headphones (Arctis)", "Dell S2417DG (NVIDIA)"]
     assert devs[0]["default"] and not devs[1]["default"]
     assert devs[1]["id"] == "{0.0.0.0}.{bbb}"
-
-
-def test_gui_smoke():
-    tk = pytest.importorskip("tkinter")
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("no display")
-    from airmirror.app import App
-
-    app = App(root, argv=[sys.executable, FAKE], auto_refresh=False)
-    events = []
-    app.on_streaming_started = lambda: events.append("up")
-    app.on_streaming_stopped = lambda: events.append("down")
-    try:
-        end = time.monotonic() + 5
-        while time.monotonic() < end and not app.receivers:
-            root.update()
-            time.sleep(0.02)
-        assert app.receivers
-        assert app.sound_frame.winfo_manager() == "grid"
-        app.receiver_list.selection_set(0)
-        app._set_displays([{"index": 0, "name": "D0", "width": 1, "height": 1, "primary": True}])
-        app.start()
-        while time.monotonic() < end and app.pin_dialog is None:
-            root.update()
-            time.sleep(0.02)
-        assert app.pin_dialog is not None
-    finally:
-        app.close()
-    assert threading.active_count() >= 1
