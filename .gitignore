@@ -2,6 +2,9 @@
 bin/
 third_party/
 
+# Agent worktrees
+.claude/worktrees/
+
 # Python
 .venv/
 __pycache__/
