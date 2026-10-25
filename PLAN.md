@@ -54,13 +54,14 @@ TV, the fallback is a browser stream that the TV opens.
 | T1 | Scaffold, toolchain, `setup.ps1`, build | `setup.ps1` builds `bin\open-airplay.exe`; `go test ./...` passes | done (#1) |
 | T2 | NTP fallback patch | Patched build passes the fixture test for a receiver without a ClockID | done (#2) |
 | T3 | Simulation and LAN discovery | Capture smoke shows SPS/PPS/IDR at 1080p; fixture session counts video and audio packets with a clean TEARDOWN; `-list-receivers` shows the TV | done (simulated). Clean TEARDOWN is left to the GUI's `disconnect` |
-| T3b | Speaker mute helper | Mute and restore work on this PC | done locally, branch `pc-mute`, unpushed; wired into the GUI after S-A merges |
-| T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | session `gui-client` |
-| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | session `diagnostics` |
-| T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | session `browser-fallback` |
+| T3b | Speaker mute + keep-awake helpers | Mute and restore work; the display stays on while mirroring | done, branch `pc-mute` (pushed, no PR); wire into the GUI hooks |
+| T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | built by a subagent, branch `gui-client` (pushed, **unreviewed**). 14 tests pass; real `displays()` works |
+| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | branch `diagnostics` (pushed, **unreviewed**, flagged privacy). 31 tests pass; the .ps1 files have **never run** (the subagent sandbox blocked pwsh) |
+| T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | branch `browser-fallback` (pushed, **unreviewed**). 16 tests pass; 1920x1080 at 15.2 fps to 127.0.0.1; `start-browser.ps1` never ran |
+| T7b | Never change TV volume | No SET_PARAMETER volume at any point | done (#3); TV volume unchanged on the real TV |
 | T8 | Integrate and merge | All PRs merged; GUI works end to end with the real binary | todo |
 | T9 | README and final pass | README covers setup, pairing, limits and troubleshooting | todo |
-| T10 | Hardware test (owner) | Desktop and sound on the TV for 5+ minutes; second Start reuses the pairing | todo |
+| T10 | Hardware test (owner) | Desktop and sound on the TV for 5+ minutes; second Start reuses the pairing | **mostly done**: picture, sound and volume confirmed live on the TV (see the log). The pairing reuse worked: no PIN on the second connect |
 
 ## Status log
 
@@ -125,12 +126,39 @@ TV, the fallback is a browser stream that the TV opens.
     - multi-slice frames from x264 `sliced-threads`, to be tested with `hwaccel=nvenc`;
     - an AirTunes version difference from the TU8300 that works.
 
+- 2026-10-25 **native AirPlay mirroring works on the real TV** (15:40, Samsung UNU710D):
+  - The setup was `hwaccel=nvenc`, sound on, 1920x1080@30, NTP timing, no FairPlay, and the saved
+    pairing (no PIN). The TV had just been rebooted with the remote's power button.
+  - The owner confirmed the desktop on the TV, a picture that keeps up, and unchanged volume. They
+    used it to watch a show.
+  - The log shows real audio levels (peak about 7000/32768) and **0 stream errors** after more than
+    3 minutes.
+  - The owner set the TV's AirPlay "Require code" to **First time only**, so the saved pairing
+    reconnects without a PIN. Keep that in the README.
+  - **Not yet known:** why the first attempt was reset. It differed in three ways: libx264 (multi-slice)
+    instead of NVENC, the TV not freshly rebooted, and "require code every time". Test libx264 again
+    before choosing the GUI default; until then, default the encoder to `nvenc` when present.
+  - **The TV's AirPlay stops advertising after a session ends badly** (a reset, or the sender being
+    killed). Only a TV restart (hold power) brought it back. The GUI must always stop with a clean
+    `disconnect`, and the README needs a "TV not found → restart the TV" step.
+  - The Samsung's AirPlay port changes after every TV reboot (34247, then 44559). Always use the
+    discovered port.
+- The session was driven by `tv_test.py`, a scratch driver (untracked, repo root). It mirrors over
+  `-stdio`, takes the PIN from `diagnostics\pin.txt`, stops on `diagnostics\stop.txt`, and stops
+  itself 30 minutes after connecting. Delete it once the GUI is merged.
+
 ## Next action
 
-1. Main: review and merge the three session PRs. Then wire `pcmute` and `keepawake` (branch
-   `pc-mute`) into the GUI and open that PR.
-2. User: the real TV test with the GUI. Select the Samsung, press Start, enter the PIN shown on the TV,
-   check picture and sound for 5+ minutes, then Stop and Start again with no PIN prompt.
+1. Main: review the three subagent branches (`gui-client`, `diagnostics` (read in full),
+   `browser-fallback`). Run their .ps1 files from the Terminal panel, open PRs, and merge.
+2. Main: wire `pcmute` and `keepawake` (branch `pc-mute`) into the GUI's
+   `on_streaming_started`/`on_streaming_stopped` hooks. Default the encoder to `nvenc`.
+3. Main: README (technical-writing skill), then `/deslop`, tests, `/unslop`.
+4. Owner: the final GUI test. Start, watch 5+ minutes, Stop, Start again (no PIN). Also try one
+   libx264 session to settle the encoder default.
+
+**Don't run `setup.ps1` while a mirror session is running.** It rebuilds `bin\open-airplay.exe`,
+which is locked while the sender runs.
 
 ## Open decisions
 
