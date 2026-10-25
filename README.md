@@ -36,9 +36,9 @@ You need:
   long as both connect to the same router and not to a guest network.
 
 By default, the TV shows a new code on every connection, and you type it in each time. To have
-it ask only the first time, change a setting on the TV itself. This repo can't change it for
-you. On the TV, open **Settings > General > Apple AirPlay Settings** and set **Require Code** to
-**First Time Only**.
+it ask only the first time, change the Samsung TV's own AirPlay settings. This repo can't change
+them for you. With the TV remote, open **Settings > General > Apple AirPlay Settings** and set
+**Require Code** to **First Time Only**.
 
 ## Set up
 
@@ -76,8 +76,8 @@ Don't run setup while you're mirroring, because it rebuilds the sender that's ru
 4. Click **Start mirroring**.
 5. The TV shows a 4-digit code. Type it into the window and click **Connect**.
 
-   How often this step comes back depends on the TV's **Require Code** setting (see
-   [Before you start](#before-you-start)). With **Every Time**, the default, the TV asks on every
+   How often this step comes back depends on **Require Code** in the Samsung TV's
+   **Apple AirPlay Settings** (see [Before you start](#before-you-start)). With **Every Time**, the default, the TV asks on every
    connection. With **First Time Only**, the sender saves the pairing in Windows Credential
    Manager, and later connections skip this step.
 
