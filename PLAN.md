@@ -51,12 +51,13 @@ TV, the fallback is a browser stream that the TV opens.
 
 | ID | Item | Done when | Status |
 |---|---|---|---|
-| T1 | Scaffold, toolchain, `setup.ps1`, build | `setup.ps1` builds `bin\open-airplay.exe`; `go test ./...` passes | in progress |
-| T2 | NTP fallback patch | Patched build passes the fixture test for a receiver without a ClockID | todo |
-| T3 | Simulation and LAN discovery | Capture smoke shows SPS/PPS/IDR at 1080p; fixture session counts video and audio packets with a clean TEARDOWN; `-list-receivers` shows the TV | todo |
-| T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | todo |
-| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | todo |
-| T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | todo |
+| T1 | Scaffold, toolchain, `setup.ps1`, build | `setup.ps1` builds `bin\open-airplay.exe`; `go test ./...` passes | done (#1) |
+| T2 | NTP fallback patch | Patched build passes the fixture test for a receiver without a ClockID | done (#2) |
+| T3 | Simulation and LAN discovery | Capture smoke shows SPS/PPS/IDR at 1080p; fixture session counts video and audio packets with a clean TEARDOWN; `-list-receivers` shows the TV | **blocked**: see the status log |
+| T3b | Speaker mute helper | Mute and restore work on this PC | done locally, branch `pc-mute`, unpushed; wired into the GUI after S-A merges |
+| T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | session `gui-client` |
+| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | session `diagnostics` |
+| T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | session `browser-fallback` |
 | T8 | Integrate and merge | All PRs merged; GUI works end to end with the real binary | todo |
 | T9 | README and final pass | README covers setup, pairing, limits and troubleshooting | todo |
 | T10 | Hardware test (owner) | Desktop and sound on the TV for 5+ minutes; second Start reuses the pairing | todo |
@@ -66,10 +67,32 @@ TV, the fallback is a browser stream that the TV opens.
 - 2026-10-25: Research done (see Approach). Go 1.27.0 and FFmpeg 9.0.2 installed. FFmpeg has
   `ddagrab`, libx264, h264_nvenc, h264_amf, h264_qsv and h264_mf. GPU: RTX 4070 SUPER.
 
+- 2026-10-25: T1 merged. The pinned open-airplay builds, and `go test ./...` passes.
+- 2026-10-25: T2 merged. doubletake PR #61 is ported by hand (open-airplay changed the
+  `prepareVideoCapture` signature). `TestReceiverWithoutPTPTimelineFallsBackToNTP` passes.
+- 2026-10-25: Three Sonnet sessions started: `gui-client`, `diagnostics`, `browser-fallback`.
+- 2026-10-25 T3 findings:
+  - `-list-displays` reports `2048x1152`. That's the DPI-scaled size, since the desktop is 2560x1440 at
+    125%. ddagrab opens the output at its real 2560x1440, and the sender scales to the TV canvas.
+  - Capture smoke **times out**. The user had been idle for 32 minutes, and the monitor turns off after
+    15 (power plan), so Desktop Duplication gets no frames. Rerun with the screen on.
+  - Fixture with PIN auth: pair-setup with PIN and FairPlay setup complete. `-test` synthetic
+    video needs GStreamer, which isn't installed, so a full media session also needs live capture
+    with the screen on.
+  - `-list-receivers` found **no receivers**. The Wi-Fi profile is **Public**, and on Public
+    Windows Firewall blocks inbound mDNS replies. The user must switch the network to Private.
+    It's also possible the TV was off.
+  - WASAPI loopback still captures a muted endpoint (GStreamer issue #1306). `airmirror/pcmute.py`
+    mutes and restores the default speakers. Tested on this PC.
+
 ## Next action
 
-Finish T1: scaffold branch, `setup.ps1`, build, and merge. Then start the three parallel sessions.
+1. User: set the Wi-Fi network to **Private** (Settings → Network & internet → Wi-Fi → your network →
+   Network profile type → Private). Turn the TV on, and keep this PC's screen on.
+2. Main: rerun `bin\open-airplay.exe -display 0 -capture-smoke` and `-list-receivers`, then the
+   fixture session with audio (`bin\doubletake-test-receiver.exe -profile modern`).
+3. Main: review and merge the three session PRs, then wire `pcmute` into the GUI.
 
 ## Open decisions
 
-- None yet.
+- None.
