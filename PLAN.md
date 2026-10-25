@@ -145,6 +145,13 @@ TV, the fallback is a browser stream that the TV opens.
     turn the TV off and on" step.
   - The Samsung's AirPlay port changes after every TV reboot (34247, then 44559). Always use the
     discovered port.
+- 2026-10-25 16:10: the session ran the driver's full 30 minutes (15:40 to 16:10) with 0 stream
+  errors, then ended through `disconnect`. The log shows a clean TEARDOWN, so a clean stop is verified on the TV.
+- 2026-10-25 16:15: restarted with no time limit. After a clean stop **and** a TV off and on, the TV
+  took about 3 minutes to advertise over mDNS again. **App requirement:** don't wait on mDNS. If the
+  last-known TV IP isn't advertising, probe its TCP ports for one that answers `GET /info` with
+  `AirTunes`, and connect there. `tv_test.py` now does this, though the run that connected was
+  started before the probe was added.
 - The session was driven by `tv_test.py`, a scratch driver (untracked, repo root). It mirrors over
   `-stdio`, takes the PIN from `diagnostics\pin.txt`, stops on `diagnostics\stop.txt`, and stops
   itself 30 minutes after connecting. Delete it once the GUI is merged.
