@@ -53,7 +53,7 @@ TV, the fallback is a browser stream that the TV opens.
 |---|---|---|---|
 | T1 | Scaffold, toolchain, `setup.ps1`, build | `setup.ps1` builds `bin\open-airplay.exe`; `go test ./...` passes | done (#1) |
 | T2 | NTP fallback patch | Patched build passes the fixture test for a receiver without a ClockID | done (#2) |
-| T3 | Simulation and LAN discovery | Capture smoke shows SPS/PPS/IDR at 1080p; fixture session counts video and audio packets with a clean TEARDOWN; `-list-receivers` shows the TV | **blocked**: see the status log |
+| T3 | Simulation and LAN discovery | Capture smoke shows SPS/PPS/IDR at 1080p; fixture session counts video and audio packets with a clean TEARDOWN; `-list-receivers` shows the TV | done (simulated). Clean TEARDOWN is left to the GUI's `disconnect` |
 | T3b | Speaker mute helper | Mute and restore work on this PC | done locally, branch `pc-mute`, unpushed; wired into the GUI after S-A merges |
 | T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | session `gui-client` |
 | T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | session `diagnostics` |
@@ -97,15 +97,22 @@ TV, the fallback is a browser stream that the TV opens.
     sleeping display; it only keeps an awake one on.
   - Added `airmirror/keepawake.py`, which keeps the display on while mirroring (branch `pc-mute`).
 
+- 2026-10-25 T3 with the monitor awake (Terminal panel; simulated, not the TV):
+  - Capture smoke passes with `-hwaccel auto` (NVENC) and `none` (libx264) at 1920x1080@30.
+  - Fixture `modern` with PIN auth: pairing, FairPlay, 3 SETUPs, audio capture started; about 31 video
+    packets/s and steady audio.
+  - Fixture `lg` with PIN auth, which has no FPSAP like Samsung: the sender skipped FairPlay and used
+    pair-verify. Video and audio flowed at the same rates. This is the Samsung path, simulated.
+  - Teardown wasn't exercised, because the script killed the sender.
+  - The user allowed the firewall prompts. `bin\open-airplay.exe` now has inbound **Allow** rules
+    (Public profile). The network is still Public; switching to Private is optional.
+
 ## Next action
 
-1. User, at the PC, from an **admin** PowerShell:
-   `Set-NetConnectionProfile -InterfaceAlias Wi-Fi -NetworkCategory Private`, then
-   `Get-NetFirewallRule -DisplayName open-airplay | Remove-NetFirewallRule`. Choose **Allow** on
-   Private when the firewall prompt reappears.
-2. Main, with the user at the PC and the monitor awake: rerun `bin\open-airplay.exe -display 0
-   -capture-smoke` from the Terminal panel, then the fixture session with audio.
-3. Main: review and merge the three session PRs, then wire `pcmute` and `keepawake` into the GUI.
+1. Main: review and merge the three session PRs. Then wire `pcmute` and `keepawake` (branch
+   `pc-mute`) into the GUI and open that PR.
+2. User: the real TV test with the GUI. Select the Samsung, press Start, enter the PIN shown on the TV,
+   check picture and sound for 5+ minutes, then Stop and Start again with no PIN prompt.
 
 ## Open decisions
 
