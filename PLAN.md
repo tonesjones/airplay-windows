@@ -54,8 +54,9 @@ TV, the fallback is a browser stream that the TV opens.
 | T1 | Scaffold, toolchain, `setup.ps1`, build | `setup.ps1` builds `bin\open-airplay.exe`; `go test ./...` passes | done (#1) |
 | T2 | NTP fallback patch | Patched build passes the fixture test for a receiver without a ClockID | done (#2) |
 | T3 | Simulation and LAN discovery | Capture smoke shows SPS/PPS/IDR at 1080p; fixture session counts video and audio packets with a clean TEARDOWN; `-list-receivers` shows the TV | done (simulated). Clean TEARDOWN is left to the GUI's `disconnect` |
-| T3b | Speaker mute + keep-awake helpers | Mute and restore work; the display stays on while mirroring | done, branch `pc-mute` (pushed, no PR); wire into the GUI hooks |
+| T3b | Speaker mute + keep-awake helpers | Mute and restore work; the display stays on while mirroring | done; merged into `gui-client` and wired to the Mute PC and Screen on tiles |
 | T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | built by a subagent, branch `gui-client` (pushed, **unreviewed**). 14 tests pass; real `displays()` works |
+| T4b | "Quick Settings" GUI redesign (option C of three mockups, picked by the owner) | Dark/light follows Windows; TV picker, Start/Stop bar and six tiles (TV sound, Mute PC, Screen on, Quality, Encoder, Screen); encoder defaults to NVENC; Mute PC and Screen on use `pcmute`/`keepawake`; settings persist; no new dependencies; pytest and ruff pass; README shows screenshots | built on branch `gui-client` (includes `pc-mute`), PR #5. Remembers the last TV and scans it directly (`airmirror/probe.py`) when mDNS doesn't list it. 27 tests pass against the fake sender; **not yet run against the TV** |
 | T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | branch `diagnostics` (pushed, **unreviewed**, flagged privacy). 31 tests pass; the .ps1 files have **never run** (the subagent sandbox blocked pwsh) |
 | T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | branch `browser-fallback` (pushed, **unreviewed**). 16 tests pass; 1920x1080 at 15.2 fps to 127.0.0.1; `start-browser.ps1` never ran |
 | T7b | Never change TV volume | No SET_PARAMETER volume at any point | done (#3); TV volume unchanged on the real TV |
@@ -159,8 +160,8 @@ TV, the fallback is a browser stream that the TV opens.
 
 1. Main: review the three subagent branches (`gui-client`, `diagnostics` (read in full),
    `browser-fallback`). Run their .ps1 files from the Terminal panel, open PRs, and merge.
-2. Main: wire `pcmute` and `keepawake` (branch `pc-mute`) into the GUI's
-   `on_streaming_started`/`on_streaming_stopped` hooks. Default the encoder to `nvenc`.
+2. Owner: review the Quick Settings window (PR from `gui-client`). It's wired to `pcmute` and
+   `keepawake` and defaults to NVENC on NVIDIA PCs. Run `py -3 -m airmirror` for the TV test.
 3. Main: README (technical-writing skill), then `/deslop`, tests, `/unslop`.
 4. Owner: the final GUI test. Start, watch 5+ minutes, Stop, Start again (no PIN). Also try one
    libx264 session to settle the encoder default.
