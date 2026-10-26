@@ -112,6 +112,8 @@ def test_gui_pairs_streams_and_stops(app):
     app._press_start()  # the bar reads "Stop mirroring" now
     assert pump(root, lambda: not app.active)
     assert app.events_seen == ["up", "down"]
+    saved = json.loads(app.settings_path.read_text("utf-8"))
+    assert saved["recent_tvs"] == [{"name": "TV", "ip": "10.0.0.5", "device_id": "a"}]
 
 
 def test_gui_wrong_code_shows_friendly_error(app):
@@ -182,5 +184,57 @@ def test_gui_scans_a_remembered_tv_that_mdns_doesnt_list(tk_root, tmp_path, monk
         assert scanned == ["10.9.9.9"]
         assert app.probed == ("10.9.9.9", 4242)
         assert app.target == "10.9.9.9"
+    finally:
+        app.close()
+
+
+def test_gui_uses_a_typed_ip_and_learns_its_id_from_mdns(app, monkeypatch):
+    scanned = []
+    monkeypatch.setattr("airmirror.app.probe.find_port", lambda ip: scanned.append(ip) or 4242)
+    assert pump(app.root, lambda: app.searched)
+    assert not app.use_tv_ip("my tv")
+    assert app.use_tv_ip(" 10.9.9.9 ")
+    assert app.tv == {"name": "10.9.9.9", "ip": "10.9.9.9"}
+    assert pump(app.root, lambda: app.probed == ("10.9.9.9", 4242))
+    assert scanned == ["10.9.9.9"]
+
+    app.use_tv_ip("10.0.0.5")  # the address the fake lists as device "a"
+    app._set_receivers(app.receivers)
+    assert app.tv["device_id"] == "a"
+    assert json.loads(app.settings_path.read_text("utf-8"))["tv"] == "a"
+
+
+def test_menu_offers_tvs_that_worked_before(tk_root, tmp_path, monkeypatch):
+    settings = tmp_path / "settings.json"
+    recent = [
+        {"name": "Old TV", "ip": "10.9.9.9", "device_id": "old"},
+        {"name": "TV", "ip": "10.0.0.5", "device_id": "a"},
+        "junk",
+    ]
+    settings.write_text(json.dumps({"recent_tvs": recent}), "utf-8")
+    monkeypatch.setattr("airmirror.app.probe.find_port", lambda ip: 4242)
+    app = App(
+        tk.Toplevel(tk_root),
+        argv=[sys.executable, FAKE],
+        auto_refresh=False,
+        settings_path=settings,
+    )
+    app.on_streaming_started = app.on_streaming_stopped = lambda: None
+    try:
+        assert len(app.settings["recent_tvs"]) == 2
+        assert pump(app.root, lambda: app.searched)
+        menu = app._tv_menu()
+        labels = [
+            menu.entrycget(i, "label")
+            for i in range(menu.index("end") + 1)
+            if menu.type(i) == "command"
+        ]
+        assert "Worked before" in labels
+        assert sum("10.0.0.5" in label for label in labels) == 1  # listed once, by mDNS
+        assert any("Old TV   10.9.9.9" in label for label in labels)
+
+        assert app.use_tv_ip("10.9.9.9")  # a typed IP keeps the name it had before
+        assert app.tv["name"] == "Old TV"
+        assert pump(app.root, lambda: app.probed == ("10.9.9.9", 4242))
     finally:
         app.close()
