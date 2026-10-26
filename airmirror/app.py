@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import collections
 import ctypes
+import ipaddress
 import json
 import os
 import queue
@@ -18,6 +19,7 @@ import tkinter as tk
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from tkinter import font as tkfont
+from tkinter import simpledialog
 from typing import NamedTuple
 
 from . import keepawake, probe, ui
@@ -424,6 +426,8 @@ class App:
             return f"Connecting to {self.target_name or 'the TV'}…", c["accent"]
         if self.last_state == "starting":
             return "Starting…", c["muted"]
+        if not self.tv and self.searched:
+            return "No TV found. Click the TV box to enter its IP address.", c["muted"]
         if not self.tv:
             return "Looking for AirPlay TVs on your network…", c["muted"]
         return "Ready. The TV shows a code the first time.", c["muted"]
@@ -535,7 +539,32 @@ class App:
             menu.add_command(label=label, command=lambda d=d: self._choose_tv(d))
         menu.add_separator()
         menu.add_command(label="     Search again", command=self.refresh_receivers)
+        menu.add_command(label="     Enter IP address…", command=self._ask_tv_ip)
         return menu
+
+    def _ask_tv_ip(self) -> None:
+        current = self.tv["ip"] if self.tv else ""
+        text = simpledialog.askstring(
+            "TV IP address",
+            "The TV's IP address (in its network settings):",
+            initialvalue=current,
+            parent=self.root,
+        )
+        if text is not None and not self.use_tv_ip(text):
+            self._error_text = f"{text.strip()} isn't an IP address."
+            self.render()
+
+    def use_tv_ip(self, text: str) -> bool:
+        """Pick the TV at this address, for when mDNS doesn't list it. False if not an IP."""
+        try:
+            ip = str(ipaddress.ip_address(text.strip()))
+        except ValueError:
+            return False
+        self._choose_tv({"name": ip, "ip": ip})
+        self.probed = None
+        self._probe()
+        self.render()
+        return True
 
     def _sound_menu(self) -> tk.Menu:
         menu = self._menu()
@@ -752,6 +781,11 @@ class App:
         self.searched = True
         wanted = tv_id(self.tv) if self.tv else self.settings["tv"]
         match = next((d for d in devices if tv_id(d) == wanted), None)
+        if not match and self.tv and not self.tv.get("device_id"):
+            # A TV typed in by IP has no device id until mDNS lists it.
+            match = next((d for d in devices if d.get("ip") == self.tv["ip"]), None)
+            if match:
+                self._choose_tv(match)  # save its real name and device id
         if match:
             self.tv = match  # fresh ip and port; the Samsung's port changes on every reboot
         elif self.tv is None and len(devices) == 1:

@@ -184,3 +184,19 @@ def test_gui_scans_a_remembered_tv_that_mdns_doesnt_list(tk_root, tmp_path, monk
         assert app.target == "10.9.9.9"
     finally:
         app.close()
+
+
+def test_gui_uses_a_typed_ip_and_learns_its_id_from_mdns(app, monkeypatch):
+    scanned = []
+    monkeypatch.setattr("airmirror.app.probe.find_port", lambda ip: scanned.append(ip) or 4242)
+    assert pump(app.root, lambda: app.searched)
+    assert not app.use_tv_ip("my tv")
+    assert app.use_tv_ip(" 10.9.9.9 ")
+    assert app.tv == {"name": "10.9.9.9", "ip": "10.9.9.9"}
+    assert pump(app.root, lambda: app.probed == ("10.9.9.9", 4242))
+    assert scanned == ["10.9.9.9"]
+
+    app.use_tv_ip("10.0.0.5")  # the address the fake lists as device "a"
+    app._set_receivers(app.receivers)
+    assert app.tv["device_id"] == "a"
+    assert json.loads(app.settings_path.read_text("utf-8"))["tv"] == "a"

@@ -54,7 +54,8 @@ them for you. With the TV remote, open **Settings > General > Apple AirPlay Sett
    .\setup.ps1
    ```
 
-   Setup installs Go and FFmpeg if needed, then builds `bin\open-airplay.exe`. Windows may ask
+   Setup installs Go and FFmpeg if needed, builds `bin\open-airplay.exe`, and adds an
+   **AirMirror** shortcut to the desktop and the Start menu. Windows may ask
    for admin approval while Go installs. If PowerShell refuses to run the script, run
    `powershell -ExecutionPolicy Bypass -File .\setup.ps1` instead. That bypasses the policy for
    this one run only.
@@ -65,14 +66,18 @@ Don't run setup while you're mirroring, because it rebuilds the sender that's ru
 ## Mirror your desktop
 
 1. Wake the PC's screen. The PC can't capture its screen while the monitor is asleep.
-2. In PowerShell, from the repo folder, open the AirMirror window:
+2. Double-click the **AirMirror** shortcut on the desktop, or open it from the Start menu.
 
-   ```bash
-   py -3 -m airmirror
-   ```
+   If the shortcut is missing, run `.\shortcut.ps1` from the repo folder to add it. Rerun it
+   after you move the folder. You can also open the window from the repo folder with
+   `py -3 -m airmirror`.
 
 3. Check that the box at the top shows your TV. If you have more than one AirPlay device, click
    the box and pick the TV.
+
+   If the box says **No TV found yet**, click it and choose **Enter IP address…**. Type the IP
+   address from the TV's network settings. The window asks the TV for its AirPlay port directly,
+   so this works even when the TV doesn't announce itself.
 4. Click **Start mirroring**.
 5. The TV shows a 4-digit code. Type it into the window and click **Connect**.
 

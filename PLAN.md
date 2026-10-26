@@ -57,6 +57,7 @@ TV, the fallback is a browser stream that the TV opens.
 | T3b | Speaker mute + keep-awake helpers | Mute and restore work; the display stays on while mirroring | done; merged into `gui-client` and wired to the Mute PC and Screen on tiles |
 | T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | done (#5), replaced by the T4b redesign |
 | T4b | "Quick Settings" GUI redesign (option C of three mockups, picked by the owner) | Dark/light follows Windows; TV picker, Start/Stop bar and six tiles (TV sound, Mute PC, Screen on, Quality, Encoder, Screen); encoder defaults to NVENC; Mute PC and Screen on use `pcmute`/`keepawake`; settings persist; no new dependencies; pytest and ruff pass; README shows screenshots | merged (#5, with `pc-mute`). Remembers the last TV and scans it directly (`airmirror/probe.py`) when mDNS doesn't list it. 27 tests pass against the fake sender. **Not yet run against the TV**; fixes go in a new PR |
+| T4c | Typed TV IP and a double-click launcher | The TV menu's **Enter IP address…** picks a TV that mDNS doesn't list and scans it; `shortcut.ps1` (also run by `setup.ps1`) adds desktop and Start menu shortcuts that open the window with no console; pytest and ruff pass | PR open. 28 tests pass; the shortcut opened the window on this PC. Typed IP not yet tried on the TV |
 | T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | branch `diagnostics` (pushed, **unreviewed**, flagged privacy). 31 tests pass; the .ps1 files have **never run** (the subagent sandbox blocked pwsh) |
 | T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | branch `browser-fallback` (pushed, **unreviewed**). 16 tests pass; 1920x1080 at 15.2 fps to 127.0.0.1; `start-browser.ps1` never ran |
 | T7b | Never change TV volume | No SET_PARAMETER volume at any point | done (#3); TV volume unchanged on the real TV |
@@ -155,6 +156,9 @@ TV, the fallback is a browser stream that the TV opens.
 - The session was driven by `tv_test.py`, a scratch driver (untracked, repo root). It mirrors over
   `-stdio`, takes the PIN from `diagnostics\pin.txt`, stops on `diagnostics\stop.txt`, and stops
   itself 30 minutes after connecting. Delete it once the GUI is merged.
+- 2026-10-25 19:13: the window's first run found no TV. The TV had stopped advertising, and the
+  window scans directly only a TV it has saved, which it does after a first connection. Mirrored
+  with `tv_test.py` instead (port 41887, no code asked). T4c adds a typed IP and the shortcut.
 
 ## Next action
 
@@ -164,7 +168,8 @@ TV, the fallback is a browser stream that the TV opens.
 2. Main: review `diagnostics` (read in full, it handles personal data) and `browser-fallback`.
    Run their .ps1 files from the Terminal panel, open PRs, and merge.
 3. Main: once the window passes the TV test, delete `tv_test.py` and the leftover agent worktrees.
-4. Nice later: an app icon, and a desktop shortcut through `start.ps1` (on `diagnostics`).
+4. Nice later: an app icon. `shortcut.ps1` now makes the desktop shortcut, so `start.ps1` on
+   `diagnostics` only needs to open the window.
 
 **Don't run `setup.ps1` while a mirror session is running.** It rebuilds `bin\open-airplay.exe`,
 which is locked while the sender runs.
