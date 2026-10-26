@@ -75,9 +75,15 @@ Don't run setup while you're mirroring, because it rebuilds the sender that's ru
 3. Check that the box at the top shows your TV. If you have more than one AirPlay device, click
    the box and pick the TV.
 
-   If the box says **No TV found yet**, click it and choose **Enter IP address…**. Type the IP
-   address from the TV's network settings. The window asks the TV for its AirPlay port directly,
-   so this works even when the TV doesn't announce itself.
+   If the box says **No TV found yet**, make sure the TV is on, then click the box:
+
+   - Under **Worked before**, pick your TV. The menu lists TVs you've mirrored to before.
+   - If your TV isn't listed anywhere, choose **Type the TV's IP address…**. On a Samsung TV,
+     the address is under **Settings** > **General** > **Network** > **Network Status** >
+     **IP Settings**.
+
+   In both cases the window asks the TV for its AirPlay port directly, so it connects even when
+   the TV doesn't announce itself.
 4. Click **Start mirroring**.
 5. The TV shows a 4-digit code. Type it into the window and click **Connect**.
 

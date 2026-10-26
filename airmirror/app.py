@@ -36,6 +36,7 @@ DEFAULT_AUDIO = "Default output"
 REFRESH_MS = 5000
 PROBE_RETRY_S = 15  # wait between direct scans of a TV that mDNS doesn't list
 MAX_LOG_LINES = 1000
+MAX_RECENT_TVS = 5
 WIDTH, HEIGHT = 400, 420
 SETTINGS_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "AirMirror" / "settings.json"
 
@@ -87,6 +88,7 @@ def load_settings(path: Path) -> dict:
         "encoder": default_encoder(),
         "display": None,
         "audio_id": "",
+        "recent_tvs": [],  # TVs that streamed, newest first: {name, ip, device_id}
     }
     try:
         saved = json.loads(path.read_text("utf-8"))
@@ -94,6 +96,9 @@ def load_settings(path: Path) -> dict:
         return settings
     if isinstance(saved, dict):
         settings.update({k: v for k, v in saved.items() if k in settings})
+    recent = settings["recent_tvs"]
+    recent = recent if isinstance(recent, list) else []
+    settings["recent_tvs"] = [t for t in recent if isinstance(t, dict) and t.get("ip")]
     return settings
 
 
@@ -427,7 +432,7 @@ class App:
         if self.last_state == "starting":
             return "Starting…", c["muted"]
         if not self.tv and self.searched:
-            return "No TV found. Click the TV box to enter its IP address.", c["muted"]
+            return "No TV found. Is it on? Click the TV box for options.", c["muted"]
         if not self.tv:
             return "Looking for AirPlay TVs on your network…", c["muted"]
         return "Ready. The TV shows a code the first time.", c["muted"]
@@ -531,23 +536,37 @@ class App:
     def _tv_menu(self) -> tk.Menu:
         menu = self._menu()
         if not self.receivers:
-            menu.add_command(label="Looking for TVs…", state="disabled")
+            label = "No TVs found on the network" if self.searched else "Looking for TVs…"
+            menu.add_command(label=label, state="disabled")
         current = tv_id(self.tv) if self.tv else None
         for d in self.receivers:
             mark = "✓  " if tv_id(d) == current else "     "
             label = f"{mark}{d.get('name', 'TV')}   {d.get('ip', '')}"
             menu.add_command(label=label, command=lambda d=d: self._choose_tv(d))
+        listed = {d.get("ip") for d in self.receivers}
+        recent = [t for t in self.settings["recent_tvs"] if t["ip"] not in listed]
+        if recent:
+            menu.add_separator()
+            menu.add_command(label="Worked before", state="disabled")
+            current_ip = self.tv["ip"] if self.tv else None
+            for t in recent:
+                mark = "✓  " if t["ip"] == current_ip else "     "
+                label = f"{mark}{t.get('name') or 'TV'}   {t['ip']}"
+                menu.add_command(label=label, command=lambda t=t: self._use_unlisted_tv(dict(t)))
         menu.add_separator()
         menu.add_command(label="     Search again", command=self.refresh_receivers)
-        menu.add_command(label="     Enter IP address…", command=self._ask_tv_ip)
+        menu.add_command(label="     Type the TV's IP address…", command=self._ask_tv_ip)
         return menu
 
     def _ask_tv_ip(self) -> None:
-        current = self.tv["ip"] if self.tv else ""
         text = simpledialog.askstring(
             "TV IP address",
-            "The TV's IP address (in its network settings):",
-            initialvalue=current,
+            "Use this only if your TV isn't in the list.\n\n"
+            "On a Samsung TV, the IP address is under Settings > General >\n"
+            "Network > Network Status > IP Settings. Your router's app\n"
+            "usually lists it too.\n\n"
+            "TV IP address:",
+            initialvalue=self.tv["ip"] if self.tv else "",
             parent=self.root,
         )
         if text is not None and not self.use_tv_ip(text):
@@ -560,11 +579,16 @@ class App:
             ip = str(ipaddress.ip_address(text.strip()))
         except ValueError:
             return False
-        self._choose_tv({"name": ip, "ip": ip})
+        known = next((t for t in self.settings["recent_tvs"] if t["ip"] == ip), None)
+        self._use_unlisted_tv(dict(known) if known else {"name": ip, "ip": ip})
+        return True
+
+    def _use_unlisted_tv(self, tv: dict) -> None:
+        """Pick a TV that mDNS doesn't list, then ask it for its AirPlay port directly."""
+        self._choose_tv(tv)
         self.probed = None
         self._probe()
         self.render()
-        return True
 
     def _sound_menu(self) -> tk.Menu:
         menu = self._menu()
@@ -809,6 +833,20 @@ class App:
     def _remember_tv(self) -> None:
         self._set(tv=tv_id(self.tv), tv_ip=self.tv["ip"], tv_name=self.tv.get("name", ""))
 
+    def _add_recent_tv(self) -> None:
+        tv = {
+            "name": self.target_name or self.tv.get("name", ""),  # the TV's own name once streaming
+            "ip": self.tv["ip"],
+            "device_id": self.tv.get("device_id", ""),
+        }
+        older = [
+            t
+            for t in self.settings["recent_tvs"]
+            if t["ip"] != tv["ip"]
+            and not (tv["device_id"] and t.get("device_id") == tv["device_id"])
+        ]
+        self._set(recent_tvs=[tv, *older][:MAX_RECENT_TVS])
+
     def _probe(self) -> None:
         if self.probing or not self.tv:
             return
@@ -919,6 +957,7 @@ class App:
             self.streaming = True
             self.stream_started = time.monotonic()
             self._remember_tv()
+            self._add_recent_tv()
             self.on_streaming_started()
             self.root.after(1000, self._tick)
         elif not value and self.streaming:
