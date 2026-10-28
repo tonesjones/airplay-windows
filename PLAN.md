@@ -168,7 +168,11 @@ TV, the fallback is a browser stream that the TV opens.
 2. Main: review `diagnostics` (read in full, it handles personal data) and `browser-fallback`.
    Run their .ps1 files from the Terminal panel, open PRs, and merge.
 3. Main: once the window passes the TV test, delete `tv_test.py` and the leftover agent worktrees.
-4. Nice later: an app icon. `shortcut.ps1` now makes the desktop shortcut, so `start.ps1` on
+4. Parked (2026-10-27): local branch `settings-and-scan-recovery` (not pushed, tests pass,
+   never run on the TV). It makes `load_settings` fall back to defaults for bad saved values, and
+   clears `probing` when a scan raises an error so later scans still run. Use it only if either
+   problem shows up. Also not done: stop the port scan as soon as the TV answers.
+5. Nice later: an app icon. `shortcut.ps1` now makes the desktop shortcut, so `start.ps1` on
    `diagnostics` only needs to open the window.
 
 **Don't run `setup.ps1` while a mirror session is running.** It rebuilds `bin\open-airplay.exe`,
