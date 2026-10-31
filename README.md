@@ -174,6 +174,32 @@ through firewall** and allow `open-airplay.exe`. If your Wi-Fi is set to **Publi
 setting it to **Private** under **Settings > Network & internet > Wi-Fi**, since this is your
 home network.
 
+### Collect diagnostics
+
+If none of the fixes above help, run the checks and save the results to a zip:
+
+```powershell
+.\diagnose.ps1
+```
+
+The script prints a PASS, WARN or FAIL line for each check: the sender, FFmpeg, screen capture,
+the network profile, firewall rules, and whether the TV is found on the same subnet. It writes
+the zip to the `diagnostics\` folder, which git ignores.
+
+The zip removes MAC addresses, Wi-Fi names, your Windows user name, codes, keys and global
+IPv6 addresses. It keeps your local IPv4 addresses, which the subnet check needs. Redaction is
+best effort, so open the zip and read each file before you share it.
+
+To also record a mirroring session, add the TV's IP address and port. Take both from
+`08-receivers.txt` in an earlier zip, because the Samsung changes its port after every restart:
+
+```powershell
+.\diagnose.ps1 --session <TV IP> --port <TV port> --seconds 90
+```
+
+This mirrors your desktop to the TV for 90 seconds. If the TV shows a code, type it in the
+PowerShell window.
+
 ## Limits
 
 - One TV model is tested: the Samsung UNU710D. Other AirPlay TVs may need fixes like the ones in
