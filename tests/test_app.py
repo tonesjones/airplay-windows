@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from airmirror.app import ENCODERS, App, error_text, load_settings, tv_id
+from airmirror import icon
+from airmirror.app import ENCODERS, App, display_names, error_text, load_settings, tv_id
 from airmirror.ui import rounded_png
 
 FAKE = str(Path(__file__).with_name("fake_sender.py"))
@@ -44,6 +45,20 @@ def test_load_settings_defaults_and_bad_files(tmp_path):
 def test_tv_id_prefers_device_id():
     assert tv_id({"device_id": "a", "name": "TV"}) == "a"
     assert tv_id({"name": "TV"}) == "TV"
+
+
+def test_display_names_follow_where_each_screen_sits():
+    main = {"index": 0, "x": 0, "y": 0, "width": 2048, "height": 1152, "primary": True}
+    left = {"index": 1, "x": -1920, "y": 989, "width": 1920, "height": 1080}
+    above = {"index": 2, "x": 0, "y": -1080, "width": 1920, "height": 1080}
+    assert display_names([main, left, above]) == {0: "Main", 1: "Left", 2: "Above"}
+    other_left = {**left, "index": 3, "y": -500}
+    assert display_names([main, left, other_left]) == {0: "Main", 1: "Screen 2", 3: "Screen 4"}
+    assert display_names([{**left, "primary": False}]) == {1: "Screen 2"}
+
+
+def test_committed_icon_matches_the_drawing():
+    assert icon.ICON_PATH.read_bytes() == icon.ico()
 
 
 def test_error_text_never_shows_raw_kinds():
@@ -238,3 +253,36 @@ def test_menu_offers_tvs_that_worked_before(tk_root, tmp_path, monkeypatch):
         assert pump(app.root, lambda: app.probed == ("10.9.9.9", 4242))
     finally:
         app.close()
+
+
+def test_gui_switches_screens_while_mirroring(app):
+    root = app.root
+    assert pump(root, lambda: app.tv is not None and len(app.displays) == 2)
+    assert app._error_text is None  # a failed sound-device listing only goes to the log
+    app.start()
+    assert pump(root, lambda: app.pin_dialog is not None)
+    enter_code(app, "1234")
+    assert pump(root, lambda: app.streaming)
+    assert next(t for t in app._tiles() if t.key == "display").enabled
+
+    sent = []
+    connect = app.sender.connect
+    app.sender.connect = lambda target, port, opts: sent.append(opts) or connect(target, port, opts)
+    app.choose_display(1)
+    assert app.switching
+    assert pump(root, lambda: app.pin_dialog is not None)  # the fake asks for a code every time
+    enter_code(app, "1234")
+    assert pump(root, lambda: app.streaming and not app.switching)
+    assert sent[0]["display"] == 1
+    assert app.events_seen == ["up", "up"]  # the PC stayed muted through the switch
+    assert app._display_label() == "Left"
+
+
+def test_locked_tile_explains_itself(app):
+    root = app.root
+    assert pump(root, lambda: app.tv is not None)
+    app.start()
+    assert pump(root, lambda: app.active)
+    app._press_tile("quality", None)
+    assert app.hint == "Stop mirroring to change Quality."
+    assert app._status()[0] == app.hint

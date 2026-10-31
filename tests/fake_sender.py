@@ -41,8 +41,9 @@ def main():
             dev = {"name": "TV", "model": "X", "ip": "10.0.0.5", "port": 34247, "device_id": "a"}
             respond(rid, devices=[dev])
         elif cmd == "displays":
-            disp = {"index": 0, "name": "D0", "x": 0, "y": 0, "width": 1920, "height": 1080}
-            respond(rid, displays=[{**disp, "primary": True}])
+            main = {"index": 0, "name": "D0", "x": 0, "y": 0, "width": 2048, "height": 1152}
+            side = {"index": 1, "name": "D1", "x": -1920, "y": 989, "width": 1920, "height": 1080}
+            respond(rid, displays=[{**main, "primary": True}, {**side, "primary": False}])
         elif cmd == "connect" and "pin" in req:
             respond(rid, state="connecting")
             if req["pin"] == PIN:

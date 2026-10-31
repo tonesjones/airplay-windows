@@ -23,6 +23,7 @@ foreach ($folder in [Environment]::GetFolderPath('Desktop'), [Environment]::GetF
     $link.TargetPath = $pyw.Source
     $link.Arguments = '-3 -m airmirror'
     $link.WorkingDirectory = $PSScriptRoot
+    $link.IconLocation = Join-Path $PSScriptRoot 'airmirror\airmirror.ico'
     $link.Description = 'Mirror this PC to an AirPlay TV'
     $link.Save()
     Write-Host "Created $path"
