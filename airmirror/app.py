@@ -645,7 +645,7 @@ class App:
     # -- menus ------------------------------------------------------------
     def _menu(self) -> tk.Menu:
         c = self.c
-        return tk.Menu(
+        menu = tk.Menu(
             self.root,
             tearoff=0,
             bg=c["card"],
@@ -655,6 +655,27 @@ class App:
             selectcolor=c["text"],
             bd=0,
             font=("Segoe UI", 10),
+        )
+        menu.marks = []  # the check mark variables must outlive this call
+        return menu
+
+    @staticmethod
+    def _option(menu: tk.Menu, label: str, chosen: bool, command, detail: str = "") -> None:
+        """A menu item with a check mark when chosen and detail right-aligned."""
+        mark = tk.BooleanVar(menu, chosen)
+        menu.marks.append(mark)
+        menu.add_checkbutton(label=label, accelerator=detail, variable=mark, command=command)
+
+    def _heading(self, menu: tk.Menu, label: str) -> None:
+        # Not state="disabled": Windows draws disabled menu text etched, which looks broken
+        # on the dark theme. This entry doesn't highlight and does nothing when clicked.
+        c = self.c
+        menu.add_command(
+            label=label,
+            foreground=c["muted"],
+            activeforeground=c["muted"],
+            activebackground=c["card"],
+            font=("Segoe UI", 9),
         )
 
     def _popup(self, event, menu: tk.Menu) -> None:
@@ -666,47 +687,59 @@ class App:
     def _choice_menu(self, key: str, choices: list[tuple]) -> tk.Menu:
         menu = self._menu()
         for value, label in choices:
-            mark = "✓  " if value == self.settings[key] else "     "
-            menu.add_command(label=mark + label, command=lambda v=value: self._set(**{key: v}))
+            chosen = value == self.settings[key]
+            self._option(menu, label, chosen, lambda v=value: self._set(**{key: v}))
         return menu
 
     def _display_menu(self) -> tk.Menu:
         menu = self._menu()
         if not self.displays:
-            menu.add_command(label="No screens found yet", state="disabled")
+            self._heading(menu, "No screens found yet")
         names, current = display_names(self.displays), self._display_index()
         for d in self.displays:
             index = d.get("index")
-            mark = "✓  " if index == current else "     "
-            label = f"{mark}{names[index]} screen  ·  {d.get('width')}×{d.get('height')}"
-            menu.add_command(label=label, command=lambda i=index: self.choose_display(i))
+            self._option(
+                menu,
+                f"{names[index]} screen",
+                index == current,
+                lambda i=index: self.choose_display(i),
+                f"{d.get('width')}×{d.get('height')}",
+            )
         menu.add_separator()
-        menu.add_command(label="     Find screens again", command=self.refresh_displays)
+        menu.add_command(label="Find screens again", command=self.refresh_displays)
         return menu
 
     def _tv_menu(self) -> tk.Menu:
         menu = self._menu()
+        self._heading(menu, "On your network")
         if not self.receivers:
-            label = "No TVs found on the network" if self.searched else "Looking for TVs…"
-            menu.add_command(label=label, state="disabled")
+            self._heading(menu, "    None found right now" if self.searched else "    Searching…")
         current = tv_id(self.tv) if self.tv else None
         for d in self.receivers:
-            mark = "✓  " if tv_id(d) == current else "     "
-            label = f"{mark}{d.get('name', 'TV')}   {d.get('ip', '')}"
-            menu.add_command(label=label, command=lambda d=d: self._choose_tv(d))
+            self._option(
+                menu,
+                d.get("name", "TV"),
+                tv_id(d) == current,
+                lambda d=d: self._choose_tv(d),
+                d.get("ip", ""),
+            )
         listed = {d.get("ip") for d in self.receivers}
         recent = [t for t in self.settings["recent_tvs"] if t["ip"] not in listed]
         if recent:
             menu.add_separator()
-            menu.add_command(label="Worked before", state="disabled")
+            self._heading(menu, "Worked before")
             current_ip = self.tv["ip"] if self.tv else None
             for t in recent:
-                mark = "✓  " if t["ip"] == current_ip else "     "
-                label = f"{mark}{t.get('name') or 'TV'}   {t['ip']}"
-                menu.add_command(label=label, command=lambda t=t: self._use_unlisted_tv(dict(t)))
+                self._option(
+                    menu,
+                    t.get("name") or "TV",
+                    t["ip"] == current_ip,
+                    lambda t=t: self._use_unlisted_tv(dict(t)),
+                    t["ip"],
+                )
         menu.add_separator()
-        menu.add_command(label="     Search again", command=self.refresh_receivers)
-        menu.add_command(label="     Type the TV's IP address…", command=self._ask_tv_ip)
+        menu.add_command(label="Search again", command=self.refresh_receivers)
+        menu.add_command(label="Type the TV's IP address…", command=self._ask_tv_ip)
         return menu
 
     def _ask_tv_ip(self) -> None:
@@ -745,8 +778,8 @@ class App:
         menu = self._menu()
         choices = [("", DEFAULT_AUDIO)] + [(d["id"], d["name"]) for d in self.audio_devices]
         for value, label in choices:
-            mark = "✓  " if value == self.settings["audio_id"] else "     "
-            menu.add_command(label=mark + label, command=lambda v=value: self._choose_audio(v))
+            chosen = value == self.settings["audio_id"]
+            self._option(menu, label, chosen, lambda v=value: self._choose_audio(v))
         return menu
 
     def _choose_tv(self, device: dict) -> None:
