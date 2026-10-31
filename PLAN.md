@@ -58,11 +58,11 @@ TV, the fallback is a browser stream that the TV opens.
 | T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | done (#5), replaced by the T4b redesign |
 | T4b | "Quick Settings" GUI redesign (option C of three mockups, picked by the owner) | Dark/light follows Windows; TV picker, Start/Stop bar and six tiles (TV sound, Mute PC, Screen on, Quality, Encoder, Screen); encoder defaults to NVENC; Mute PC and Screen on use `pcmute`/`keepawake`; settings persist; no new dependencies; pytest and ruff pass; README shows screenshots | merged (#5, with `pc-mute`). Remembers the last TV and scans it directly (`airmirror/probe.py`) when mDNS doesn't list it. 27 tests pass against the fake sender. **Not yet run against the TV**; fixes go in a new PR |
 | T4c | Recent TVs, a typed-IP fallback and a double-click launcher | The TV menu lists TVs that streamed before (**Worked before**, up to 5) and, last, **Type the TV's IP address…** with directions to find it; either picks a TV that mDNS doesn't list and scans it; `shortcut.ps1` (also run by `setup.ps1`) adds desktop and Start menu shortcuts that open the window with no console; pytest and ruff pass | done (#6). On 2026-10-26 a fresh run from the shortcut mirrored to the TV with no help |
-| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | PR #9, reviewed 2026-10-30. Fixes: clean stop on `--session`, setup only when the sender is missing, no real TV details in the repo, IPv6 redaction. `diagnose.ps1` ran and its zip was clean. Not run: `--session` on the TV, `start.ps1` |
+| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | done (#9), reviewed 2026-10-30. Fixes: clean stop on `--session`, setup only when the sender is missing, no real TV details in the repo, IPv6 redaction. `diagnose.ps1` ran and its zip was clean. Not run: `--session` on the TV, `start.ps1` |
 | T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | branch `browser-fallback` (pushed, **unreviewed**). 16 tests pass; 1920x1080 at 15.2 fps to 127.0.0.1; `start-browser.ps1` never ran |
 | T7b | Never change TV volume | No SET_PARAMETER volume at any point | done (#3); TV volume unchanged on the real TV |
 | T8 | Integrate and merge | All PRs merged; GUI works end to end with the real binary | todo |
-| T9 | README and final pass | README covers setup, pairing, limits and troubleshooting | PR #8 |
+| T9 | README and final pass | README covers setup, pairing, limits and troubleshooting | done (#8) |
 | T10 | Hardware test (owner) | Desktop and sound on the TV for 5+ minutes; second Start reuses the pairing | **mostly done**: picture, sound and volume confirmed live on the TV (see the log). The pairing reuse worked: no PIN on the second connect |
 
 ## Status log
@@ -162,8 +162,9 @@ TV, the fallback is a browser stream that the TV opens.
 
 ## Next action
 
-1. Owner: merge PR #7 (scan stops at the first port that answers), #8 (README) and #9
-   (diagnostics). None of them is tried on the TV yet.
+1. Merged 2026-10-30: #7 (scan stops at the first port that answers), #8 (README) and #9
+   (diagnostics). None of them is tried on the TV yet. The README doesn't mention
+   `diagnose.ps1` yet.
 2. Owner at the TV: one libx264 session to settle the encoder default. If it works, test
    `diagnose.ps1 --session` on the TV too and check the TV still shows up afterwards.
 3. Design session (`ui-ux-design`, its own worktree): UI/UX pass on the window, an app icon, and
