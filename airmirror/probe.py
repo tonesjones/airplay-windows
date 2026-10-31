@@ -34,12 +34,19 @@ async def _scan(ip: str, ports: range, batch: int, timeout: float) -> int | None
         async with limit:
             return port if await _is_airplay(ip, port, timeout) else None
 
-    found = await asyncio.gather(*(probe(p) for p in ports))
-    return next((p for p in found if p), None)
+    tasks = [asyncio.create_task(probe(p)) for p in ports]
+    try:
+        for next_done in asyncio.as_completed(tasks):
+            if port := await next_done:
+                return port
+        return None
+    finally:
+        for task in tasks:
+            task.cancel()
 
 
 def find_port(
     ip: str, ports: range = range(1024, 65536), batch: int = 1000, timeout: float = 0.5
 ) -> int | None:
-    """Return the first port on ip that answers like an AirPlay receiver, or None."""
+    """Return a port on ip that answers like an AirPlay receiver, stopping at the first, or None."""
     return asyncio.run(_scan(ip, ports, batch, timeout))
