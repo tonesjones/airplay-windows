@@ -1,6 +1,9 @@
+import asyncio
 import socket
 import threading
+import time
 
+from airmirror import probe
 from airmirror.probe import find_port
 
 
@@ -40,3 +43,16 @@ def test_find_port_returns_none_when_nothing_answers():
         assert find_port("127.0.0.1", range(port, port + 1)) is None
     finally:
         decoy.close()
+
+
+def test_find_port_stops_scanning_once_the_tv_answers(monkeypatch):
+    async def slow_unless_tv(ip, port, timeout):
+        if port == 5:
+            return True
+        await asyncio.sleep(30)
+        return False
+
+    monkeypatch.setattr(probe, "_is_airplay", slow_unless_tv)
+    started = time.monotonic()
+    assert find_port("127.0.0.1", range(1, 2000)) == 5
+    assert time.monotonic() - started < 5
