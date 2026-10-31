@@ -163,8 +163,7 @@ TV, the fallback is a browser stream that the TV opens.
 ## Next action
 
 1. Merged 2026-10-30: #7 (scan stops at the first port that answers), #8 (README) and #9
-   (diagnostics). None of them is tried on the TV yet. The README doesn't mention
-   `diagnose.ps1` yet.
+   (diagnostics). None of them is tried on the TV yet.
 2. Owner at the TV: one libx264 session to settle the encoder default. If it works, test
    `diagnose.ps1 --session` on the TV too and check the TV still shows up afterwards.
 3. Design session (`ui-ux-design`, its own worktree): UI/UX pass on the window, an app icon, and
