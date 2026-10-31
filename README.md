@@ -20,9 +20,8 @@ Mirroring works on a Samsung 7 Series 55" (model UNU710D, 2018): a live 1920x108
 pairing code after the first connection.
 That is the only TV tested so far.
 
-That result came from the command line. The AirMirror window passes its tests against a
-simulated sender but hasn't run against the TV yet. [`PLAN.md`](PLAN.md) tracks what is verified
-and what comes next.
+The AirMirror window, started from its desktop shortcut, has also mirrored to the TV.
+[`PLAN.md`](PLAN.md) tracks what is verified and what comes next.
 
 ## Before you start
 
@@ -54,9 +53,10 @@ them for you. With the TV remote, open **Settings > General > Apple AirPlay Sett
    .\setup.ps1
    ```
 
-   Setup installs Go and FFmpeg with `winget` if they are missing, builds the pinned sender into
-   `bin\open-airplay.exe`, and runs `shortcut.ps1` to add an **AirMirror** shortcut to the
-   desktop and the Start menu. Windows may ask for admin approval while Go installs. If PowerShell refuses to run the script, run
+   If Go or FFmpeg is missing, setup installs it with `winget`. Setup then builds the pinned
+   sender into `bin\open-airplay.exe` and runs `shortcut.ps1`, which adds an **AirMirror**
+   shortcut to the desktop and the Start menu. Windows may ask for admin approval while Go
+   installs. If PowerShell refuses to run the script, run
    `powershell -ExecutionPolicy Bypass -File .\setup.ps1` instead. That bypasses the policy for
    this one run only.
 
@@ -149,17 +149,10 @@ To list your displays or the AirPlay devices on your network, run
 - Check that the PC is on the same network as the TV.
 - If mirroring ended badly earlier, the TV can stop announcing itself. Turn the TV off and on
   with the remote, then wait 1 to 3 minutes before you try again.
-- Don't want to wait? Click the TV box and choose **Type the TV's IP address…**. The window
+- To skip the wait, click the TV box and choose **Type the TV's IP address…**. The window
   asks the TV directly, so it doesn't need the TV to announce itself.
 - If your network is set to **Public**, Windows Firewall can block the replies that TV discovery
   needs. Allow the firewall prompt for `open-airplay.exe`, or switch the network to **Private**.
-
-**The TV was found before, but now the connection goes to the wrong port.** The Samsung's AirPlay
-port changes every time the TV restarts. The window finds the current port itself, so don't
-type one in.
-
-**The TV shows no picture, or the picture is black.** Wake the PC's monitor. The PC can't capture
-its screen while the monitor is asleep.
 
 **The window says it couldn't capture the screen, or the sender says the capture "failed startup
 validation".** The PC's monitor is asleep. Move the mouse, then start again.
@@ -185,7 +178,7 @@ home network.
 
 - One TV model is tested: the Samsung UNU710D. Other AirPlay TVs may need fixes like the ones in
   `patches/`.
-- It uses the TV's native AirPlay only. It has no Miracast or browser mode.
+- It uses only the TV's native AirPlay. It has no Miracast or browser mode.
 - The window defaults to the NVENC encoder, which needs an NVIDIA graphics card. Software
   encoding (libx264) hasn't been tested on the TV since the first attempt, which failed.
 - The app never changes the TV's volume. Use the TV remote.
