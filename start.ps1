@@ -26,8 +26,11 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
 
 Push-Location $PSScriptRoot
 try {
-    # setup.ps1 owns the build-stamp logic and is cheap when bin\ is up to date.
-    & (Join-Path $PSScriptRoot 'setup.ps1')
+    # Setup rebuilds bin\open-airplay.exe, which is locked while a session mirrors, so run it
+    # only when the sender is missing.
+    if (-not (Test-Path (Join-Path $PSScriptRoot 'bin\open-airplay.exe'))) {
+        & (Join-Path $PSScriptRoot 'setup.ps1')
+    }
 
     if ($Browser) {
         $fallback = Join-Path $PSScriptRoot 'fallback\start-browser.ps1'

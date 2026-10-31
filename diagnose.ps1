@@ -4,8 +4,10 @@
 
 .DESCRIPTION
     Runs `py -3 -m airmirror.diagnose`. Extra arguments pass through, for example:
-    .\diagnose.ps1 --session 192.168.0.45 --port 34247 --seconds 90
-    The session mode keeps the console attached so you can type the PIN shown on the TV.
+    .\diagnose.ps1 --session <TV IP> --port <TV port> --seconds 90
+    Take the TV's IP and port from 08-receivers.txt in an earlier zip. Samsung TVs change the
+    port on every restart. The session mode keeps the console attached so you can type the PIN
+    shown on the TV.
 #>
 $ErrorActionPreference = 'Stop'
 

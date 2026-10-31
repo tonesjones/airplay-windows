@@ -15,6 +15,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -53,6 +54,9 @@ _CODE_FLAG_RE = re.compile(r"(?i)(-code(?:\s+|=)|OPEN_AIRPLAY_CODE\s*=\s*)(\"[^\
 _HEX_RUN_RE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{32,}(?![0-9A-Za-z])")
 _B64_RE = re.compile(r"(?<![A-Za-z0-9+/_=-])[A-Za-z0-9+/_-]{32,}={0,2}(?![A-Za-z0-9+/_=-])")
 _SSID_LINE_RE = re.compile(r"(?im)^(?P<k>[ \t]*B?SSID(?:[ \t]*\d+)?[ \t]*:[ \t]*)(?P<v>.*?)[ \t]*$")
+_IPV6_RE = re.compile(
+    r"(?<![0-9A-Fa-f:])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?![0-9A-Fa-f:])"
+)
 _USER_PATH_RE = re.compile(
     r"(?i)(?P<head>[A-Za-z]:(?P<sep>[\\/]{1,4})users(?P=sep))(?P<name>[^\\/\s\"'<>|:*?]+)"
 )
@@ -84,8 +88,16 @@ def _looks_like_key(match: re.Match[str]) -> str:
     return PLACEHOLDER if has_digit and has_alpha else text
 
 
+def _ipv6_sub(match: re.Match[str]) -> str:
+    try:
+        addr = ipaddress.IPv6Address(match[0])
+    except ValueError:
+        return match[0]
+    return match[0] if addr.is_link_local or addr.is_loopback else "<ipv6>"
+
+
 def redact(text: str, ssids: tuple[str, ...] | list[str] = ()) -> str:
-    """Remove identifiers and secrets. LAN IPv4 addresses are kept on purpose."""
+    """Remove identifiers and secrets. LAN IPv4 and link-local IPv6 addresses are kept."""
     # Paths first, so a user name is not mistaken for something else later.
     text = _USER_PATH_RE.sub(lambda m: f"{m['head']}<user>", text)
     text = _SSID_LINE_RE.sub(lambda m: f"{m['k']}<ssid>", text)
@@ -97,6 +109,7 @@ def redact(text: str, ssids: tuple[str, ...] | list[str] = ()) -> str:
     text = _FIELD_RE.sub(_field_sub, text)
     text = _MAC_RE.sub("<mac>", text)
     text = _MAC_DOTTED_RE.sub("<mac>", text)
+    text = _IPV6_RE.sub(_ipv6_sub, text)
     text = _HEX_RUN_RE.sub(PLACEHOLDER, text)
     return _B64_RE.sub(_looks_like_key, text)
 
@@ -441,6 +454,7 @@ def run_session(exe: Path, target: str, port: int, seconds: int) -> str:
     proc = subprocess.Popen(
         [str(exe), "-target", target, "-port", str(port), "-debug"],
         stderr=subprocess.PIPE,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
     )
 
     def pump() -> None:
@@ -460,7 +474,9 @@ def run_session(exe: Path, target: str, port: int, seconds: int) -> str:
     except KeyboardInterrupt:
         pass
     if proc.poll() is None:
-        proc.terminate()
+        # Ask the sender to stop so it sends TEARDOWN. After a hard kill the Samsung stops
+        # advertising AirPlay for minutes.
+        proc.send_signal(getattr(signal, "CTRL_BREAK_EVENT", signal.SIGINT))
         try:
             proc.wait(10)
         except subprocess.TimeoutExpired:
@@ -482,7 +498,9 @@ def write_zip(files: dict[str, str], report: str, ssids: list[str], out_dir: Pat
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write a redacted airmirror diagnostics zip.")
     parser.add_argument("--session", metavar="TARGET", help="also run a live -debug session")
-    parser.add_argument("--port", type=int, default=7000, help="receiver port for --session")
+    parser.add_argument(
+        "--port", type=int, default=7000, help="receiver port for --session (see 08-receivers.txt)"
+    )
     parser.add_argument("--seconds", type=int, default=60, help="length of --session")
     parser.add_argument("--exe", type=Path, default=SENDER_EXE, help="path to open-airplay.exe")
     parser.add_argument("--out", type=Path, default=DIAG_DIR, help="output directory")

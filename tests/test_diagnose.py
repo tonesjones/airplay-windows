@@ -34,11 +34,11 @@ def level_of(checks, fragment):
 
 
 def test_mac_colon_and_hyphen_forms():
-    out = redact("eth a4:c3:f0:12:34:56 and A4-C3-F0-12-34-56 and 192.168.0.45")
+    out = redact("eth a4:c3:f0:12:34:56 and A4-C3-F0-12-34-56 and 192.168.1.20")
     assert "a4:c3" not in out.lower()
     assert "a4-c3" not in out.lower()
     assert out.count("<mac>") == 2
-    assert "192.168.0.45" in out
+    assert "192.168.1.20" in out
 
 
 def test_mdns_txt_records():
@@ -58,13 +58,13 @@ def test_mdns_txt_records():
 
 
 def test_debug_log_lines_keep_useful_content():
-    line = "2026/10/25 12:00:01 [airplay] SETUP ok to 192.168.0.45:34247 video 1920x1080@30"
+    line = "2026/10/25 12:00:01 [airplay] SETUP ok to 192.168.1.20:41000 video 1920x1080@30"
     assert redact(line) == line
 
 
 def test_pin_prompt_reply_is_redacted():
     text = (
-        "PAIRING REQUIRED: a PIN should now be visible on Samsung 7 Series (55).\n"
+        "PAIRING REQUIRED: a PIN should now be visible on Living Room TV.\n"
         "Enter that PIN here: 4821\nnext"
     )
     out = redact(text)
@@ -76,7 +76,7 @@ def test_pin_prompt_reply_is_redacted():
 
 
 def test_code_flag_and_env():
-    assert "9999" not in redact("open-airplay.exe -target 192.168.0.45 -code 9999")
+    assert "9999" not in redact("open-airplay.exe -target 192.168.1.20 -code 9999")
     assert "9999" not in redact("OPEN_AIRPLAY_CODE=9999")
 
 
@@ -84,20 +84,20 @@ def test_json_secret_fields():
     text = json.dumps(
         {
             "cmd": "connect",
-            "target": "192.168.0.45",
+            "target": "192.168.1.20",
             "pin": "1234",
             "Password": "hunter2",
             "pairingKey": "abc",
             "client_secret": "s3",
             "credentials": "xyz",
-            "port": 34247,
+            "port": 41000,
         }
     )
     out = redact(text)
     for secret in ("1234", "hunter2", '"abc"', '"s3"', "xyz"):
         assert secret not in out
-    assert '"target": "192.168.0.45"' in out
-    assert '"port": 34247' in out
+    assert '"target": "192.168.1.20"' in out
+    assert '"port": 41000' in out
 
 
 def test_log_style_secret_fields_but_not_lookalikes():
@@ -133,40 +133,40 @@ def test_ssid_elsewhere_case_insensitive():
 @pytest.mark.parametrize(
     "path",
     [
-        r"C:\Users\Owner\AppData\Local\Temp\x.log",
-        r"c:\users\OWNER\Desktop",
-        r"C:\USERS\owner\file",
-        "C:/Users/Owner/file",
-        r"C:\\Users\\Owner\\file",
+        r"C:\Users\Jdoe\AppData\Local\Temp\x.log",
+        r"c:\users\JDOE\Desktop",
+        r"C:\USERS\jdoe\file",
+        "C:/Users/Jdoe/file",
+        r"C:\\Users\\Jdoe\\file",
     ],
 )
 def test_user_profile_paths(path):
     out = redact(path)
-    assert "owner" not in out.lower()
+    assert "jdoe" not in out.lower()
     assert "<user>" in out
 
 
 def test_user_path_keeps_rest_of_path():
-    assert redact(r"C:\Users\Owner\AppData\x") == r"C:\Users\<user>\AppData\x"
+    assert redact(r"C:\Users\Jdoe\AppData\x") == r"C:\Users\<user>\AppData\x"
 
 
 def test_lan_ips_survive():
-    text = "endpoint=192.168.0.45:34247 gw 10.0.0.1 local 172.16.5.9/24"
+    text = "endpoint=192.168.1.20:41000 gw 10.0.0.1 local 172.16.5.9/24"
     assert redact(text) == text
 
 
 # ---------------------------------------------------------------- parsing
 
 RECEIVERS = (
-    '[1] name="Samsung 7 Series (55)" model="UNU710D" mirroring=yes endpoint=192.168.0.45:34247\n'
-    '[2] name="Speaker" model="AudioAccessory6,1" mirroring=no endpoint=192.168.0.60:7000\n'
+    '[1] name="Living Room TV" model="UNU710D" mirroring=yes endpoint=192.168.1.20:41000\n'
+    '[2] name="Speaker" model="AudioAccessory6,1" mirroring=no endpoint=192.168.1.60:7000\n'
 )
 
 
 def test_parse_receivers():
     r = parse_receivers(RECEIVERS)
     assert len(r) == 2
-    assert r[0]["mirroring"] is True and r[0]["port"] == 34247 and r[0]["host"] == "192.168.0.45"
+    assert r[0]["mirroring"] is True and r[0]["port"] == 41000 and r[0]["host"] == "192.168.1.20"
     assert r[1]["mirroring"] is False
 
 
@@ -199,8 +199,8 @@ def good_facts(**over):
                 "Direction": "Inbound",
             }
         ],
-        "receivers": parse_receivers(RECEIVERS.replace(":34247", ":7000")),
-        "local_ipv4": [{"IPAddress": "192.168.0.10", "PrefixLength": 24}],
+        "receivers": parse_receivers(RECEIVERS.replace(":41000", ":7000")),
+        "local_ipv4": [{"IPAddress": "192.168.1.10", "PrefixLength": 24}],
     }
     facts.update(over)
     return facts
@@ -268,7 +268,7 @@ def test_audio_only_receiver_is_not_capable():
 
 def test_non_7000_port_noted():
     checks = build_checks(good_facts(receivers=parse_receivers(RECEIVERS)))
-    assert any("-port 34247" in msg for _, msg in checks)
+    assert any("-port 41000" in msg for _, msg in checks)
 
 
 def test_different_subnet_fails():
@@ -287,13 +287,13 @@ def test_zip_building_with_fake_subprocess(tmp_path, monkeypatch):
     profile = json.dumps(
         {"Name": "HomeNet-5G", "InterfaceAlias": "Wi-Fi", "NetworkCategory": "Private"}
     )
-    ips = json.dumps({"IPAddress": "192.168.0.10", "PrefixLength": 24, "InterfaceAlias": "Wi-Fi"})
-    user = r"C:\Users\Owner"
+    ips = json.dumps({"IPAddress": "192.168.1.10", "PrefixLength": 24, "InterfaceAlias": "Wi-Fi"})
+    user = r"C:\Users\Jdoe"
 
     def fake_run(args, timeout=30):
         joined = " ".join(str(a) for a in args)
         if "-list-receivers" in joined:
-            return 0, RECEIVERS.replace(":34247", ":7000"), False
+            return 0, RECEIVERS.replace(":41000", ":7000"), False
         if "-capture-smoke" in joined:
             return 0, f"SPS PPS IDR from {user}\\x\n", False
         if "-list-displays" in joined or "-list-audio-devices" in joined:
@@ -340,7 +340,13 @@ def test_zip_building_with_fake_subprocess(tmp_path, monkeypatch):
     assert "HomeNet" not in blob
     assert "9c:3d:cf" not in blob.lower()
     assert "a4:c3:f0" not in blob.lower()
-    assert "owner" not in blob.lower()
-    assert "192.168.0.10" in blob
-    assert "192.168.0.45" in blob
+    assert "jdoe" not in blob.lower()
+    assert "192.168.1.10" in blob
+    assert "192.168.1.20" in blob
     assert "ddagrab" in contents["03-ffmpeg.txt"]
+
+
+def test_global_ipv6_is_redacted_but_link_local_and_times_survive():
+    out = redact("to [2601:646:8a00:1e0::5]:7000 via fe80::1%12 at 15:28:03 ::1")
+    assert "2601" not in out and "<ipv6>" in out
+    assert "fe80::1" in out and "15:28:03" in out and "::1" in out
