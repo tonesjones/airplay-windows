@@ -57,12 +57,12 @@ TV, the fallback is a browser stream that the TV opens.
 | T3b | Speaker mute + keep-awake helpers | Mute and restore work; the display stays on while mirroring | done; merged into `gui-client` and wired to the Mute PC and Screen on tiles |
 | T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | done (#5), replaced by the T4b redesign |
 | T4b | "Quick Settings" GUI redesign (option C of three mockups, picked by the owner) | Dark/light follows Windows; TV picker, Start/Stop bar and six tiles (TV sound, Mute PC, Screen on, Quality, Encoder, Screen); encoder defaults to NVENC; Mute PC and Screen on use `pcmute`/`keepawake`; settings persist; no new dependencies; pytest and ruff pass; README shows screenshots | merged (#5, with `pc-mute`). Remembers the last TV and scans it directly (`airmirror/probe.py`) when mDNS doesn't list it. 27 tests pass against the fake sender. **Not yet run against the TV**; fixes go in a new PR |
-| T4c | Recent TVs, a typed-IP fallback and a double-click launcher | The TV menu lists TVs that streamed before (**Worked before**, up to 5) and, last, **Type the TV's IP address…** with directions to find it; either picks a TV that mDNS doesn't list and scans it; `shortcut.ps1` (also run by `setup.ps1`) adds desktop and Start menu shortcuts that open the window with no console; pytest and ruff pass | PR #6 open. 29 tests pass; the shortcut opened the window on this PC. Not yet tried on the TV |
-| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | branch `diagnostics` (pushed, **unreviewed**, flagged privacy). 31 tests pass; the .ps1 files have **never run** (the subagent sandbox blocked pwsh) |
+| T4c | Recent TVs, a typed-IP fallback and a double-click launcher | The TV menu lists TVs that streamed before (**Worked before**, up to 5) and, last, **Type the TV's IP address…** with directions to find it; either picks a TV that mDNS doesn't list and scans it; `shortcut.ps1` (also run by `setup.ps1`) adds desktop and Start menu shortcuts that open the window with no console; pytest and ruff pass | done (#6). On 2026-10-26 a fresh run from the shortcut mirrored to the TV with no help |
+| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | PR #9, reviewed 2026-10-30. Fixes: clean stop on `--session`, setup only when the sender is missing, no real TV details in the repo, IPv6 redaction. `diagnose.ps1` ran and its zip was clean. Not run: `--session` on the TV, `start.ps1` |
 | T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | branch `browser-fallback` (pushed, **unreviewed**). 16 tests pass; 1920x1080 at 15.2 fps to 127.0.0.1; `start-browser.ps1` never ran |
 | T7b | Never change TV volume | No SET_PARAMETER volume at any point | done (#3); TV volume unchanged on the real TV |
 | T8 | Integrate and merge | All PRs merged; GUI works end to end with the real binary | todo |
-| T9 | README and final pass | README covers setup, pairing, limits and troubleshooting | todo |
+| T9 | README and final pass | README covers setup, pairing, limits and troubleshooting | PR #8 |
 | T10 | Hardware test (owner) | Desktop and sound on the TV for 5+ minutes; second Start reuses the pairing | **mostly done**: picture, sound and volume confirmed live on the TV (see the log). The pairing reuse worked: no PIN on the second connect |
 
 ## Status log
@@ -162,18 +162,19 @@ TV, the fallback is a browser stream that the TV opens.
 
 ## Next action
 
-1. Owner: the TV test of the window. Stop any `tv_test.py` session first, run `py -3 -m airmirror`,
-   Start, watch 5+ minutes, Stop, Start again (no PIN). Also try one libx264 session to settle the
-   encoder default. Fix anything found in a new PR.
-2. Main: review `diagnostics` (read in full, it handles personal data) and `browser-fallback`.
-   Run their .ps1 files from the Terminal panel, open PRs, and merge.
-3. Main: once the window passes the TV test, delete `tv_test.py` and the leftover agent worktrees.
-4. Parked (2026-10-27): local branch `settings-and-scan-recovery` (not pushed, tests pass,
+1. Owner: merge PR #7 (scan stops at the first port that answers), #8 (README) and #9
+   (diagnostics). None of them is tried on the TV yet.
+2. Owner at the TV: one libx264 session to settle the encoder default. If it works, test
+   `diagnose.ps1 --session` on the TV too and check the TV still shows up afterwards.
+3. Design session (`ui-ux-design`, its own worktree): UI/UX pass on the window, an app icon, and
+   the owner's report that the **Screen** tile doesn't work with two screens. The code passes
+   `display: 1` when Screen 2 is picked, and the sender lists and captures both monitors, so the
+   likely cause is the tile being locked while mirroring. Not confirmed with the owner yet.
+4. Not planned now: review `browser-fallback` (T7). Native AirPlay works, so it's only a backup.
+5. Parked (2026-10-27): local branch `settings-and-scan-recovery` (not pushed, tests pass,
    never run on the TV). It makes `load_settings` fall back to defaults for bad saved values, and
    clears `probing` when a scan raises an error so later scans still run. Use it only if either
-   problem shows up. Also not done: stop the port scan as soon as the TV answers.
-5. Nice later: an app icon. `shortcut.ps1` now makes the desktop shortcut, so `start.ps1` on
-   `diagnostics` only needs to open the window.
+   problem shows up.
 
 **Don't run `setup.ps1` while a mirror session is running.** It rebuilds `bin\open-airplay.exe`,
 which is locked while the sender runs.
