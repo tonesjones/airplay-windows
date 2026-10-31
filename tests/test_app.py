@@ -239,14 +239,14 @@ def test_menu_offers_tvs_that_worked_before(tk_root, tmp_path, monkeypatch):
         assert len(app.settings["recent_tvs"]) == 2
         assert pump(app.root, lambda: app.searched)
         menu = app._tv_menu()
-        labels = [
-            menu.entrycget(i, "label")
+        items = [
+            (menu.entrycget(i, "label"), menu.entrycget(i, "accelerator"))
             for i in range(menu.index("end") + 1)
-            if menu.type(i) == "command"
+            if menu.type(i) in ("command", "checkbutton")
         ]
-        assert "Worked before" in labels
-        assert sum("10.0.0.5" in label for label in labels) == 1  # listed once, by mDNS
-        assert any("Old TV   10.9.9.9" in label for label in labels)
+        assert ("Worked before", "") in items
+        assert sum(ip == "10.0.0.5" for _, ip in items) == 1  # listed once, by mDNS
+        assert ("Old TV", "10.9.9.9") in items
 
         assert app.use_tv_ip("10.9.9.9")  # a typed IP keeps the name it had before
         assert app.tv["name"] == "Old TV"
