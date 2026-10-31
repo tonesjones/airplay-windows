@@ -54,13 +54,16 @@ TV, the fallback is a browser stream that the TV opens.
 | T1 | Scaffold, toolchain, `setup.ps1`, build | `setup.ps1` builds `bin\open-airplay.exe`; `go test ./...` passes | done (#1) |
 | T2 | NTP fallback patch | Patched build passes the fixture test for a receiver without a ClockID | done (#2) |
 | T3 | Simulation and LAN discovery | Capture smoke shows SPS/PPS/IDR at 1080p; fixture session counts video and audio packets with a clean TEARDOWN; `-list-receivers` shows the TV | done (simulated). Clean TEARDOWN is left to the GUI's `disconnect` |
-| T3b | Speaker mute helper | Mute and restore work on this PC | done locally, branch `pc-mute`, unpushed; wired into the GUI after S-A merges |
-| T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | session `gui-client` |
-| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | session `diagnostics` |
-| T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | session `browser-fallback` |
+| T3b | Speaker mute + keep-awake helpers | Mute and restore work; the display stays on while mirroring | done; merged into `gui-client` and wired to the Mute PC and Screen on tiles |
+| T4/5 | Protocol client and tkinter GUI | pytest and ruff pass; the GUI lists real receivers and displays | done (#5), replaced by the T4b redesign |
+| T4b | "Quick Settings" GUI redesign (option C of three mockups, picked by the owner) | Dark/light follows Windows; TV picker, Start/Stop bar and six tiles (TV sound, Mute PC, Screen on, Quality, Encoder, Screen); encoder defaults to NVENC; Mute PC and Screen on use `pcmute`/`keepawake`; settings persist; no new dependencies; pytest and ruff pass; README shows screenshots | merged (#5, with `pc-mute`). Remembers the last TV and scans it directly (`airmirror/probe.py`) when mDNS doesn't list it. 27 tests pass against the fake sender. **Not yet run against the TV**; fixes go in a new PR |
+| T4c | Recent TVs, a typed-IP fallback and a double-click launcher | The TV menu lists TVs that streamed before (**Worked before**, up to 5) and, last, **Type the TV's IP address…** with directions to find it; either picks a TV that mDNS doesn't list and scans it; `shortcut.ps1` (also run by `setup.ps1`) adds desktop and Start menu shortcuts that open the window with no console; pytest and ruff pass | PR #6 open. 29 tests pass; the shortcut opened the window on this PC. Not yet tried on the TV |
+| T6 | Diagnostics and `start.ps1` | Redaction tests pass; `diagnose.ps1` writes a zip; `start.ps1` opens the GUI | branch `diagnostics` (pushed, **unreviewed**, flagged privacy). 31 tests pass; the .ps1 files have **never run** (the subagent sandbox blocked pwsh) |
+| T7 | Browser fallback | Stream plays in a desktop browser; pytest and ruff pass | branch `browser-fallback` (pushed, **unreviewed**). 16 tests pass; 1920x1080 at 15.2 fps to 127.0.0.1; `start-browser.ps1` never ran |
+| T7b | Never change TV volume | No SET_PARAMETER volume at any point | done (#3); TV volume unchanged on the real TV |
 | T8 | Integrate and merge | All PRs merged; GUI works end to end with the real binary | todo |
 | T9 | README and final pass | README covers setup, pairing, limits and troubleshooting | todo |
-| T10 | Hardware test (owner) | Desktop and sound on the TV for 5+ minutes; second Start reuses the pairing | todo |
+| T10 | Hardware test (owner) | Desktop and sound on the TV for 5+ minutes; second Start reuses the pairing | **mostly done**: picture, sound and volume confirmed live on the TV (see the log). The pairing reuse worked: no PIN on the second connect |
 
 ## Status log
 
@@ -107,12 +110,73 @@ TV, the fallback is a browser stream that the TV opens.
   - The user allowed the firewall prompts. `bin\open-airplay.exe` now has inbound **Allow** rules
     (Public profile). The network is still Public; switching to Private is optional.
 
+- 2026-10-25 **first real TV test** (Samsung UNU710D, 2018), driven over `-stdio` from a scratch script:
+  - Transient pairing was refused (M4 error 2), then the TV showed a PIN. The PIN pair-setup and
+    pair-verify both worked.
+  - FPSAP isn't advertised, so FairPlay was skipped. The TV chose NTP timing, and its NTP requests
+    reached the PC.
+  - The TV offered a 1920x1080@30 canvas. Audio was ALAC 44.1 kHz. SETUP x3 and RECORD succeeded,
+    and the state reached `streaming`.
+  - About 1 s after the first IDR (libx264, High@4.0, multi-slice), **the TV closed the video data
+    channel with a TCP reset**. It went back to the previous programme with no picture. Afterwards
+    its AirPlay service stopped advertising, and the next connect to the old port was refused.
+  - **Bug: the TV volume was left at 100.** The sender sent `SET_PARAMETER volume: 0.000000`
+    (0 dB is full scale) twice at SETUP, and Samsung maps that onto the speaker volume. Fixed by
+    `patches/0002-never-set-receiver-volume.patch`: no volume writes at all, and mute refuses.
+  - Suspects for the reset, not yet tested:
+    - video key derivation or key mixing, the same symptom as doubletake issue #56 (Xiaomi);
+    - multi-slice frames from x264 `sliced-threads`, to be tested with `hwaccel=nvenc`;
+    - an AirTunes version difference from the TU8300 that works.
+
+- 2026-10-25 **native AirPlay mirroring works on the real TV** (15:40, Samsung UNU710D):
+  - The setup was `hwaccel=nvenc`, sound on, 1920x1080@30, NTP timing, no FairPlay, and the saved
+    pairing (no PIN). The TV had just been rebooted with the remote's power button.
+  - The owner confirmed the desktop on the TV, a picture that keeps up, and unchanged volume. They
+    used it to watch a show.
+  - The log shows real audio levels (peak about 7000/32768) and **0 stream errors** after more than
+    3 minutes.
+  - The owner set the TV's AirPlay "Require code" to **First time only**, so the saved pairing
+    reconnects without a PIN. Keep that in the README.
+  - **Not yet known:** why the first attempt was reset. It differed in three ways: libx264 (multi-slice)
+    instead of NVENC, the TV not freshly rebooted, and "require code every time". Test libx264 again
+    before choosing the GUI default; until then, default the encoder to `nvenc` when present.
+  - **The TV's AirPlay stops advertising after a session ends badly** (a reset, or the sender being
+    killed). Turning the TV off and on with the remote brought it back after a minute or two. The
+    GUI must always stop with a clean `disconnect`, and the README needs a "TV not found →
+    turn the TV off and on" step.
+  - The Samsung's AirPlay port changes after every TV reboot (34247, then 44559). Always use the
+    discovered port.
+- 2026-10-25 16:10: the session ran the driver's full 30 minutes (15:40 to 16:10) with 0 stream
+  errors, then ended through `disconnect`. The log shows a clean TEARDOWN, so a clean stop is verified on the TV.
+- 2026-10-25 16:15: restarted with no time limit. After a clean stop **and** a TV off and on, the TV
+  took about 3 minutes to advertise over mDNS again. **App requirement:** don't wait on mDNS. If the
+  last-known TV IP isn't advertising, probe its TCP ports for one that answers `GET /info` with
+  `AirTunes`, and connect there. `tv_test.py` now does this, though the run that connected was
+  started before the probe was added.
+- The session was driven by `tv_test.py`, a scratch driver (untracked, repo root). It mirrors over
+  `-stdio`, takes the PIN from `diagnostics\pin.txt`, stops on `diagnostics\stop.txt`, and stops
+  itself 30 minutes after connecting. Delete it once the GUI is merged.
+- 2026-10-25 19:13: the window's first run found no TV. The TV had stopped advertising, and the
+  window scans directly only a TV it has saved, which it does after a first connection. Mirrored
+  with `tv_test.py` instead (port 41887, no code asked). T4c (#6) adds recent TVs, a typed-IP fallback and the shortcut.
+
 ## Next action
 
-1. Main: review and merge the three session PRs. Then wire `pcmute` and `keepawake` (branch
-   `pc-mute`) into the GUI and open that PR.
-2. User: the real TV test with the GUI. Select the Samsung, press Start, enter the PIN shown on the TV,
-   check picture and sound for 5+ minutes, then Stop and Start again with no PIN prompt.
+1. Owner: the TV test of the window. Stop any `tv_test.py` session first, run `py -3 -m airmirror`,
+   Start, watch 5+ minutes, Stop, Start again (no PIN). Also try one libx264 session to settle the
+   encoder default. Fix anything found in a new PR.
+2. Main: review `diagnostics` (read in full, it handles personal data) and `browser-fallback`.
+   Run their .ps1 files from the Terminal panel, open PRs, and merge.
+3. Main: once the window passes the TV test, delete `tv_test.py` and the leftover agent worktrees.
+4. Parked (2026-10-27): local branch `settings-and-scan-recovery` (not pushed, tests pass,
+   never run on the TV). It makes `load_settings` fall back to defaults for bad saved values, and
+   clears `probing` when a scan raises an error so later scans still run. Use it only if either
+   problem shows up. Also not done: stop the port scan as soon as the TV answers.
+5. Nice later: an app icon. `shortcut.ps1` now makes the desktop shortcut, so `start.ps1` on
+   `diagnostics` only needs to open the window.
+
+**Don't run `setup.ps1` while a mirror session is running.** It rebuilds `bin\open-airplay.exe`,
+which is locked while the sender runs.
 
 ## Open decisions
 

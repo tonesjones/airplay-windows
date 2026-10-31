@@ -129,7 +129,9 @@ if ($Dev) {
     Write-Host 'Dev tools ready: .venv\Scripts\python -m pytest ; .venv\Scripts\ruff check .'
 }
 
+& (Join-Path $Root 'shortcut.ps1')
+
 Write-Host ''
-Write-Host 'Setup complete.'
+Write-Host 'Setup complete. Open AirMirror from its desktop or Start menu shortcut.'
 Write-Host 'The first time you mirror, Windows Firewall may ask about open-airplay.exe.'
 Write-Host 'Allow it on Private networks so the TV can reach this PC.'
