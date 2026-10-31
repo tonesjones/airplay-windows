@@ -23,6 +23,7 @@ from tkinter import simpledialog
 from typing import NamedTuple
 
 from . import keepawake, probe, ui
+from .icon import ICON_PATH
 from .pcmute import SpeakerMute
 from .sender import SenderError, SenderProcess, list_audio_devices
 
@@ -32,12 +33,15 @@ QUALITY = {
     "Weak Wi-Fi": {"fps": 30, "bitrate_kbps": 3000},
 }
 ENCODERS = {"nvenc": "NVENC", "auto": "Auto", "none": "Software"}
+MENU_TILES = ("quality", "encoder", "display")
 DEFAULT_AUDIO = "Default output"
 REFRESH_MS = 5000
+HINT_MS = 4000
+AIR_MS = 50  # frame time of the air lines that drift across the Start bar while connecting
 PROBE_RETRY_S = 15  # wait between direct scans of a TV that mDNS doesn't list
 MAX_LOG_LINES = 1000
 MAX_RECENT_TVS = 5
-WIDTH, HEIGHT = 400, 420
+WIDTH, HEIGHT = 400, 430
 SETTINGS_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "AirMirror" / "settings.json"
 
 # Segoe Fluent Icons / MDL2 Assets code points.
@@ -52,6 +56,7 @@ GLYPH = {
     "display": "",
     "down": "",
     "right": "",
+    "lock": "",
 }
 
 # User-facing wording per error kind (from the protocol doc). Raw messages are never shown.
@@ -115,6 +120,30 @@ def tv_id(device: dict) -> str:
     return device.get("device_id") or device.get("name", "")
 
 
+def display_names(displays: list[dict]) -> dict[int, str]:
+    """Names each display by where it sits next to the main one: Main, Left, Right, Above, Below."""
+    main = next((d for d in displays if d.get("primary")), None)
+
+    def centre(d):
+        return d.get("x", 0) + d.get("width", 0) / 2, d.get("y", 0) + d.get("height", 0) / 2
+
+    names = {}
+    for d in displays:
+        index = d.get("index", 0)
+        if d is main:
+            names[index] = "Main"
+        elif main is None:
+            names[index] = f"Screen {index + 1}"
+        else:
+            (x, y), (mx, my) = centre(d), centre(main)
+            if abs(x - mx) >= abs(y - my):
+                names[index] = "Right" if x > mx else "Left"
+            else:
+                names[index] = "Below" if y > my else "Above"
+    taken = list(names.values())
+    return {i: f"Screen {i + 1}" if taken.count(n) > 1 else n for i, n in names.items()}
+
+
 class App:
     def __init__(
         self,
@@ -156,6 +185,11 @@ class App:
         self.last_probe = 0.0
         self.probed: tuple[str, int] | None = None  # (ip, port) a direct scan found
         self.start_when_found = False
+        self.connect_started = 0.0
+        self.switching: str | None = None  # "stopping", then "starting", while changing screens
+        self.hint: str | None = None
+        self.hint_id: str | None = None
+        self.air_id: str | None = None
         if self.settings["tv_ip"]:
             # Show the last TV right away: it can stay silent over mDNS for minutes.
             self.tv = {
@@ -176,6 +210,7 @@ class App:
         self.canvas.bind("<Leave>", lambda _e: self._set_hover(None))
 
         root.title("AirMirror")
+        root.iconbitmap(default=str(ICON_PATH))
         root.configure(bg=self.c["bg"])
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -263,16 +298,33 @@ class App:
         self._draw_picker()
         self._draw_start_bar()
         self._draw_tiles()
+        if self._air_moving() and not self.air_id:
+            self.air_id = self.root.after(AIR_MS, self._animate_air)
 
         y = 374
         cv.create_line(self.px(16), self.px(y), self.px(WIDTH - 16), self.px(y), fill=c["line"])
         text, dot = self._status()
+        lines = self._wrap(text, 9, WIDTH - 100)
+        dot_y = y + 28 - 8 * (len(lines) - 1)  # beside the first line
         cv.create_oval(
-            self.px(20), self.px(y + 21), self.px(28), self.px(y + 29), fill=dot, outline=""
+            self.px(20), self.px(dot_y - 4), self.px(28), self.px(dot_y + 4), fill=dot, outline=""
         )
-        self._text(36, y + 25, self._fit(text, 9, WIDTH - 100), c["muted"], size=9)
+        self._text(36, y + 28, "\n".join(lines), c["muted"], size=9)
         link = c["accent_hover"] if self.hover == "log" else c["accent"]
-        self._text(WIDTH - 20, y + 25, "Log", link, size=9, anchor="e", tag="log")
+        self._text(WIDTH - 20, y + 28, "Log", link, size=9, anchor="e", tag="log")
+
+    def _wrap(self, text: str, size: int, width: float, max_lines: int = 2) -> list[str]:
+        font = tkfont.Font(family="Segoe UI", size=size)
+        lines = [""]
+        for word in text.split():
+            joined = f"{lines[-1]} {word}".strip()
+            if font.measure(joined) <= self.px(width) or not lines[-1]:
+                lines[-1] = joined
+            else:
+                lines.append(word)
+        if len(lines) > max_lines:
+            lines = lines[: max_lines - 1] + [" ".join(lines[max_lines - 1 :])]
+        return [self._fit(line, size, width) for line in lines]
 
     def _draw_picker(self) -> None:
         c = self.c
@@ -298,33 +350,87 @@ class App:
     def _draw_start_bar(self) -> None:
         c = self.c
         hovered = self.hover == "start"
+        tv = self.target_name or "the TV"
         if self.sender_dead:
             fill, ink = c["card_hover"] if hovered else c["card"], c["text"]
             title, sub = "Restart", "The sender stopped. Click to start it again."
+        elif self.switching:
+            fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
+            title, sub = "Cancel", f"Switching to the {self._display_label()} screen…"
         elif self.streaming:
             fill, ink = c["green_hover"] if hovered else c["green"], c["on_accent"]
             title, sub = "Stop mirroring", self._stream_summary()
+        elif self.active and self.start_when_found:
+            fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
+            title, sub = "Cancel", f"Looking for {tv}…  {self._elapsed(self.connect_started)}"
         elif self.active:
             fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
-            title, sub = "Cancel", f"Connecting to {self.target_name or 'the TV'}…"
+            title, sub = "Cancel", f"Connecting to {tv}…"
         elif self.tv:
             fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
-            title, sub = "Start mirroring", "Off"
+            source = f"{self._display_label()} screen" if len(self.displays) > 1 else "This PC"
+            title, sub = "Start mirroring", f"{source} to {self.tv.get('name', 'the TV')}"
         else:
             fill, ink = c["card"], c["muted"]
             title, sub = "Start mirroring", "Pick a TV first"
         self._box(16, 80, WIDTH - 16, 152, 14, fill, "start")
-        self._text(40, 116, GLYPH["power"], ink, size=22, tag="start", icon=True)
+        if self._air_moving():
+            self._draw_air(ink)
+        else:
+            self._text(40, 116, GLYPH["power"], ink, size=22, tag="start", icon=True)
         self._text(84, 104, title, ink, size=13, bold=True, tag="start")
         self._text(84, 130, self._fit(sub, 9, WIDTH - 120), ink, size=9, tag="start")
 
+    def _air_moving(self) -> bool:
+        """Connecting, scanning or switching screens, but not waiting for a code."""
+        return (
+            (self.switching is not None or (self.active and not self.streaming))
+            and not self.pin_dialog
+            and not self.sender_dead
+        )
+
+    def _draw_air(self, ink: str) -> None:
+        """Three air lines blowing left to right where the power icon sits."""
+        left, right = 22, 62
+        now = time.monotonic()
+        for y, length, speed, offset in ((106, 16, 34, 0), (116, 22, 26, 17), (126, 14, 40, 31)):
+            x0 = left - length + (now * speed + offset) % (right - left + length)
+            x0, x1 = max(x0, left), min(x0 + length, right)
+            if x1 - x0 > 1:
+                self.canvas.create_line(
+                    self.px(x0),
+                    self.px(y),
+                    self.px(x1),
+                    self.px(y),
+                    fill=ink,
+                    width=self.px(3),
+                    capstyle="round",
+                    tags=("start", "air"),
+                )
+
+    def _animate_air(self) -> None:
+        if self.closing or not self._air_moving():
+            self.air_id = None
+            self.render()
+            return
+        if self.start_when_found:
+            self.render()  # the elapsed time in the bar
+        else:
+            self.canvas.delete("air")
+            self._draw_air(self.c["on_accent"])
+        self.air_id = self.root.after(AIR_MS, self._animate_air)
+
+    @staticmethod
+    def _elapsed(since: float) -> str:
+        secs = int(time.monotonic() - since)
+        if secs >= 3600:
+            return f"{secs // 3600}:{secs // 60 % 60:02}:{secs % 60:02}"
+        return f"{secs // 60}:{secs % 60:02}"
+
     def _stream_summary(self) -> str:
-        secs = int(time.monotonic() - self.stream_started)
-        parts = [
-            f"{secs // 3600}:{secs // 60 % 60:02}:{secs % 60:02}"
-            if secs >= 3600
-            else f"{secs // 60}:{secs % 60:02}"
-        ]
+        parts = [self._elapsed(self.stream_started)]
+        if len(self.displays) > 1:
+            parts.append(f"{self._display_label()} screen")
         if self.sender and self.sender.resolution:
             parts.append("{}×{}".format(*self.sender.resolution))
         parts.append("sound on" if self.settings["sound"] and self.audio_capable else "no sound")
@@ -367,8 +473,22 @@ class App:
                 False,
                 not locked,
             ),
-            Tile("display", GLYPH["display"], "Screen", self._display_label(), False, not locked),
+            Tile(
+                "display",
+                GLYPH["display"],
+                "Screen",
+                self._display_label(),
+                False,
+                not locked or self._can_switch_display(),
+            ),
         ]
+
+    def _can_switch_display(self) -> bool:
+        return self.streaming and not self.switching
+
+    def _locked(self, key: str, enabled: bool) -> bool:
+        """Disabled only until mirroring stops (TV sound without audio support never unlocks)."""
+        return not enabled and self.active and (key != "sound" or self.audio_capable)
 
     def _draw_tiles(self) -> None:
         c = self.c
@@ -388,6 +508,15 @@ class App:
             self._text(x0 + 14, y0 + 22, glyph, ink, size=15, tag=tag, icon=True)
             self._text(x0 + 14, y0 + 52, title, ink, size=10, bold=True, tag=tag)
             self._text(x0 + 14, y0 + 71, self._fit(sub, 9, tw - 24), sub_ink, size=9, tag=tag)
+            corner = None
+            if self._locked(key, enabled):
+                corner = GLYPH["lock"]
+            elif key in MENU_TILES:
+                corner = GLYPH["down"]
+            if corner:
+                self._text(
+                    x0 + tw - 14, y0 + 22, corner, sub_ink, size=9, anchor="e", tag=tag, icon=True
+                )
             if key == "sound" and enabled:
                 # Split tile, as in Windows quick settings: the body toggles, the chevron opens
                 # the sound device menu.
@@ -411,13 +540,16 @@ class App:
         index = self._display_index()
         if index is None:
             return "Main"
-        d = next((d for d in self.displays if d.get("index") == index), {})
-        return "Main" if d.get("primary") else f"Screen {index + 1}"
+        return display_names(self.displays).get(index, "Main")
 
     def _status(self) -> tuple[str, str]:
         c = self.c
+        if self.hint:
+            return self.hint, c["accent"]
         if self._error_text and not self.streaming:
             return self._error_text, c["red"]
+        if self.switching and not self.pin_dialog:
+            return f"Switching to the {self._display_label()} screen…", c["accent"]
         if self.streaming:
             text = "Mirroring"
             if self.sender and self.sender.resolution:
@@ -427,6 +559,8 @@ class App:
             ), c["green"]
         if self.pin_dialog:
             return f"Enter the code shown on {self.target_name or 'the TV'}.", c["accent"]
+        if self.active and self.start_when_found:
+            return "After the TV restarts, it can take a few minutes to answer.", c["accent"]
         if self.active:
             return f"Connecting to {self.target_name or 'the TV'}…", c["accent"]
         if self.last_state == "starting":
@@ -469,13 +603,16 @@ class App:
     def _press_start(self) -> None:
         if self.sender_dead:
             self._restart_sender()
-        elif self.active:
+        elif self.active or self.switching:
             self.stop()
         elif self.tv:
             self.start()
 
     def _press_tile(self, key: str, event) -> None:
-        if not next(t for t in self._tiles() if t.key == key).enabled:
+        tile = next(t for t in self._tiles() if t.key == key)
+        if self._locked(key, tile.enabled):
+            self._show_hint(f"Stop mirroring to change {tile.title}.")
+        if not tile.enabled:
             return
         if key == "sound":
             self._set(sound=not self.settings["sound"])
@@ -492,15 +629,18 @@ class App:
         elif key == "encoder":
             self._popup(event, self._choice_menu("encoder", list(ENCODERS.items())))
         elif key == "display":
-            choices = [
-                (
-                    d.get("index"),
-                    f"Screen {d.get('index', 0) + 1}  ({d.get('width')}×"
-                    f"{d.get('height')})" + ("  ·  main" if d.get("primary") else ""),
-                )
-                for d in self.displays
-            ]
-            self._popup(event, self._choice_menu("display", choices))
+            self._popup(event, self._display_menu())
+
+    def _show_hint(self, text: str) -> None:
+        if self.hint_id:
+            self.root.after_cancel(self.hint_id)
+        self.hint = text
+        self.hint_id = self.root.after(HINT_MS, self._clear_hint)
+        self.render()
+
+    def _clear_hint(self) -> None:
+        self.hint = self.hint_id = None
+        self.render()
 
     # -- menus ------------------------------------------------------------
     def _menu(self) -> tk.Menu:
@@ -525,12 +665,23 @@ class App:
 
     def _choice_menu(self, key: str, choices: list[tuple]) -> tk.Menu:
         menu = self._menu()
-        if not choices:
-            menu.add_command(label="Nothing to choose yet", state="disabled")
-        current = self._display_index() if key == "display" else self.settings[key]
         for value, label in choices:
-            mark = "✓  " if value == current else "     "
+            mark = "✓  " if value == self.settings[key] else "     "
             menu.add_command(label=mark + label, command=lambda v=value: self._set(**{key: v}))
+        return menu
+
+    def _display_menu(self) -> tk.Menu:
+        menu = self._menu()
+        if not self.displays:
+            menu.add_command(label="No screens found yet", state="disabled")
+        names, current = display_names(self.displays), self._display_index()
+        for d in self.displays:
+            index = d.get("index")
+            mark = "✓  " if index == current else "     "
+            label = f"{mark}{names[index]} screen  ·  {d.get('width')}×{d.get('height')}"
+            menu.add_command(label=label, command=lambda i=index: self.choose_display(i))
+        menu.add_separator()
+        menu.add_command(label="     Find screens again", command=self.refresh_displays)
         return menu
 
     def _tv_menu(self) -> tk.Menu:
@@ -691,6 +842,7 @@ class App:
     def _restart_sender(self) -> None:
         old, self.sender = self.sender, None
         self.generation += 1  # drops late events from the old process
+        self._cancel_switch()
         self._set_streaming(False)
         self.active = False
         self.target = None
@@ -709,14 +861,21 @@ class App:
             pass
         sender.close()
 
-    def _bg(self, fn: Callable[[], object], done: Callable[[object], None] | None = None) -> None:
+    def _bg(
+        self,
+        fn: Callable[[], object],
+        done: Callable[[object], None] | None = None,
+        quiet: bool = False,
+    ) -> None:
+        """Runs fn off the UI thread. A quiet failure only goes to the log."""
         sender, gen = self.sender, self.generation
 
         def work():
             try:
                 result = fn()
             except SenderError as exc:
-                self.events.put((gen, "error", str(exc)))
+                event = (gen, "log", f"[error] {exc}") if quiet else (gen, "error", str(exc))
+                self.events.put(event)
                 return
             if done:
                 self.events.put((gen, "call", lambda: done(result)))
@@ -754,6 +913,7 @@ class App:
             self.render()
         elif kind == "exit":
             self._log(f"[sender exited with code {data}]")
+            self._cancel_switch()
             self._close_pin_dialog()
             self._set_streaming(False)
             self.active = False
@@ -765,19 +925,36 @@ class App:
     def _on_hello(self, caps: dict) -> None:
         self.audio_capable = bool(caps.get("audio"))
         if self.audio_capable and not self.audio_devices:
-            self._bg(list_audio_devices, self._set_audio_devices)
+            self._bg(list_audio_devices, self._set_audio_devices, quiet=True)
         if self.last_state == "starting":
             self.last_state = "idle"
         self.refresh_receivers()
-        self._bg(lambda: self.sender.displays(), self._set_displays)
+        self.refresh_displays()
         self.render()
 
     def _set_audio_devices(self, devices) -> None:
         self.audio_devices = devices
 
+    def refresh_displays(self) -> None:
+        """Reads the screen list again: a monitor can wake up or be plugged in later."""
+        if self.sender and self.sender.alive:
+            self._bg(lambda: self.sender.displays(), self._set_displays, quiet=True)
+
     def _set_displays(self, displays) -> None:
-        self.displays = displays
-        self.render()
+        if displays != self.displays:
+            self.displays = displays
+            self.render()
+
+    def choose_display(self, index: int) -> None:
+        """Picks a screen. While mirroring, reconnects to show it; the TV keeps the pairing."""
+        if index == self._display_index():
+            return
+        self._set(display=index)
+        if self._can_switch_display():
+            self.switching = "stopping"
+            target = self.target
+            self._bg(lambda: self.sender.disconnect(target))
+            self.render()
 
     def _display_index(self) -> int | None:
         indices = [d.get("index") for d in self.displays]
@@ -793,6 +970,7 @@ class App:
     def _auto_refresh(self) -> None:
         if self.closing:
             return
+        self.refresh_displays()
         if not self.active:
             self.refresh_receivers()
             stale = time.monotonic() - self.last_probe > PROBE_RETRY_S
@@ -894,6 +1072,7 @@ class App:
         self.shown_errors.clear()
         self._error_text = None
         self.active = True
+        self.connect_started = time.monotonic()
         self.render()
         # Always the discovered port: the Samsung's changes on every reboot, and it's never 7000.
         port = self._tv_port()
@@ -913,6 +1092,7 @@ class App:
             self.render()
 
     def stop(self) -> None:
+        self._cancel_switch()
         if self.start_when_found:
             self.start_when_found = False
             self.active = False
@@ -950,19 +1130,34 @@ class App:
                 self._error_text = None
         elif self.target is not None:
             self.active = False
+            if self.switching == "stopping":
+                self.switching = "starting"
+                self.start()  # the old stream has ended; connect again with the new screen
+            else:
+                self._cancel_switch()
+        if self.switching == "starting" and self.streaming:
+            self.switching = None
         self.render()
+
+    def _cancel_switch(self) -> None:
+        if self.switching:
+            self.switching = None
+            if not self.streaming:
+                self.on_streaming_stopped()
 
     def _set_streaming(self, value: bool) -> None:
         if value and not self.streaming:
             self.streaming = True
-            self.stream_started = time.monotonic()
+            if not self.switching:
+                self.stream_started = time.monotonic()
             self._remember_tv()
             self._add_recent_tv()
             self.on_streaming_started()
             self.root.after(1000, self._tick)
         elif not value and self.streaming:
             self.streaming = False
-            self.on_streaming_stopped()
+            if not self.switching:  # PC mute and keep-awake stay on through a screen switch
+                self.on_streaming_stopped()
 
     def _tick(self) -> None:
         if self.streaming and not self.closing:
@@ -995,8 +1190,14 @@ class App:
             fg=c["text"],
             insertbackground=c["text"],
             relief="flat",
+            highlightthickness=self.px(2),
+            highlightbackground=c["line"],
+            highlightcolor=c["accent"],
             show="*" if kind == "password" else "",
         )
+        if kind != "password":
+            digits_only = dlg.register(lambda text: text.isdigit() and len(text) <= 8 or not text)
+            entry.configure(validate="key", validatecommand=(digits_only, "%P"))
         entry.pack(ipady=6, pady=(0, 16))
         entry.focus_set()
         target = self.target
@@ -1050,6 +1251,7 @@ class App:
     # -- shutdown ---------------------------------------------------------
     def close(self) -> None:
         self.closing = True
+        self._cancel_switch()
         self._close_pin_dialog()
         self._set_streaming(False)
         sender, self.sender = self.sender, None
@@ -1060,6 +1262,8 @@ class App:
 
 def main() -> None:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp text on scaled displays
+    # Its own taskbar button and icon, instead of grouping with other Python windows.
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("AirMirror")
     root = tk.Tk()
     App(root)
     root.mainloop()
