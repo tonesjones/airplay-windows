@@ -166,10 +166,16 @@ TV, the fallback is a browser stream that the TV opens.
    (diagnostics). None of them is tried on the TV yet.
 2. Owner at the TV: one libx264 session to settle the encoder default. If it works, test
    `diagnose.ps1 --session` on the TV too and check the TV still shows up afterwards.
-3. Design session (`ui-ux-design`, its own worktree): UI/UX pass on the window, an app icon, and
-   the owner's report that the **Screen** tile doesn't work with two screens. The code passes
-   `display: 1` when Screen 2 is picked, and the sender lists and captures both monitors, so the
-   likely cause is the tile being locked while mirroring. Not confirmed with the owner yet.
+3. Implemented locally 2026-10-31: Quiet controller layout and blue Cast icon. Standard tkinter
+   controls replace the canvas tiles; TV/screen stay visible and quality, encoder and audio source
+   sit under a disclosure. Existing screen switching/reconnect behavior is preserved. All 67 tests
+   pass (simulated sender and local loopback receivers), ruff checks pass, and light/dark layouts
+   were inspected. Screenshots: `docs/screenshots/quiet-controller/`. No live TV session was started;
+   confirm the redesigned controls and screen switching on hardware with the owner.
+   2026-11-01: the taskbar icon was blurry at 125% scaling. Tk only sets a 40 px icon there, and the
+   taskbar shrank it to 30 px. The window now sets icons at the exact sizes Windows draws
+   (`ui.set_window_icon`), and the `.ico` has pixel-snapped strokes plus 30, 36 and 42 px images.
+   Checked the icon sizes the window reports; not yet looked at on the taskbar.
 4. Not planned now: review `browser-fallback` (T7). Native AirPlay works, so it's only a backup.
 5. Parked (2026-10-27): local branch `settings-and-scan-recovery` (not pushed, tests pass,
    never run on the TV). It makes `load_settings` fall back to defaults for bad saved values, and

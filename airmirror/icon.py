@@ -1,4 +1,4 @@
-"""Draws the AirMirror icon, a cloud on a TV, and writes it as airmirror.ico.
+"""Draws the blue Cast icon and writes it as airmirror-cast.ico.
 
 Run `py -3 -m airmirror.icon` after changing the drawing; the window and shortcut.ps1 use the
 committed .ico.
@@ -11,9 +11,9 @@ import struct
 import zlib
 from pathlib import Path
 
-ICON_PATH = Path(__file__).with_name("airmirror.ico")
-SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
-BLUE, WHITE, CLOUD = "#005fb8", "#ffffff", "#9fd8ff"
+ICON_PATH = Path(__file__).with_name("airmirror-cast.ico")
+SIZES = (16, 20, 24, 30, 32, 36, 40, 42, 48, 64, 256)
+BLUE, WHITE, SIGNAL = "#005fb8", "#ffffff", "#9fd8ff"
 
 
 def _box(cx, cy, hw, hh, r):
@@ -37,32 +37,58 @@ def _segment(x0, y0, x1, y1, width):
     return sd
 
 
-def _cloud(x, y):
-    puffs = [((22.8, 31), 5), ((31.8, 27.5), 7.5), ((39.8, 30), 6)]
-    sd = min(math.hypot(x - cx, y - cy) - r for (cx, cy), r in puffs)
-    sd = min(sd, _box(31.3, 33, 8.5, 3, 0)(x, y))
-    return max(sd, y - 36)  # flat bottom
+def _line(v, w, k):
+    """Centre a stroke `w` pixels wide so both its edges fall on pixel boundaries."""
+    return (math.floor(v / k) + 0.5) * k if w % 2 else round(v / k) * k
 
 
-# Signed distance and colour per layer, in a 64x64 design space, back to front.
-LAYERS = [
-    (_box(32, 32, 30, 30, 14), BLUE),
-    (_outline(_box(32, 28, 22, 15, 3), 4), WHITE),
-    (_segment(24, 51, 40, 51, 4), WHITE),
-    (_cloud, CLOUD),
-]
+def layers(k):
+    """Signed distance and colour per layer, back to front, in a 64x64 design space at `k` units
+    per pixel. Strokes are whole pixels and snapped to the grid so small sizes stay sharp."""
+    w = max(1, round(3.5 / k))
+    stroke = w * k
+    # Screen outline: snap its outer edges, then centre the stroke inside them.
+    left, right = round(12 / k) * k + stroke / 2, round(52 / k) * k - stroke / 2
+    top, bottom = round(16 / k) * k + stroke / 2, round(44 / k) * k - stroke / 2
+    frame = _box((left + right) / 2, (top + bottom) / 2, (right - left) / 2, (bottom - top) / 2, 3)
+    outline = _outline(frame, stroke)
+    gap = _box(16, 44, 15, 15, 0)
+
+    def screen(x, y):
+        # The casting signal interrupts the screen's lower-left corner.
+        return max(outline(x, y), -gap(x, y))
+
+    stand_y = _line(51, w, k)
+    arc_w = max(1, round(3.6 / k)) * k
+
+    def signal(x, y):
+        radius = math.hypot(x - 12, y - 46)
+        arcs = min(abs(radius - 12) - arc_w / 2, abs(radius - 20) - arc_w / 2)
+        return max(arcs, 12 - x, y - 46)
+
+    def signal_corner(x, y):
+        return max(math.hypot(x - 12, y - 46) - 4, 12 - x, y - 46)
+
+    return [
+        (_box(32, 32, 30, 30, 14), BLUE),
+        (screen, WHITE),
+        (_segment(34, stand_y, 42, stand_y, stroke), WHITE),
+        (signal, SIGNAL),
+        (signal_corner, WHITE),
+    ]
 
 
 def render(size: int) -> bytes:
     """RGBA pixels, top row first."""
     k = 64 / size
-    colours = [tuple(int(c[i : i + 2], 16) for i in (1, 3, 5)) for _, c in LAYERS]
+    shapes = layers(k)
+    colours = [tuple(int(c[i : i + 2], 16) for i in (1, 3, 5)) for _, c in shapes]
     out = bytearray()
     for j in range(size):
         for i in range(size):
             x, y = (i + 0.5) * k, (j + 0.5) * k
             r = g = b = a = 0.0
-            for (sd, _), (cr, cg, cb) in zip(LAYERS, colours, strict=True):
+            for (sd, _), (cr, cg, cb) in zip(shapes, colours, strict=True):
                 cov = max(0.0, min(1.0, 0.5 - sd(x, y) / k))
                 if cov:
                     na = cov + a * (1 - cov)

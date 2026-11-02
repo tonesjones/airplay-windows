@@ -11,7 +11,10 @@ window, AirMirror.
 
 | Ready to mirror (light theme) | Mirroring (dark theme) |
 |---|---|
-| ![AirMirror with the Samsung TV picked and the Start mirroring button](docs/screenshots/ready-light.png) | ![AirMirror mirroring for 12 minutes at 1920x1080 with sound](docs/screenshots/mirroring-dark.png) |
+| ![AirMirror with the Samsung TV picked and the Start mirroring button](docs/screenshots/quiet-controller/ready-light.png) | ![AirMirror mirroring for 12 minutes at 1920x1080 with sound](docs/screenshots/quiet-controller/mirroring-dark.png) |
+
+The screenshots show the Quiet controller layout with a simulated receiver, not a live TV session.
+The window uses standard keyboard-accessible controls and follows the Windows light/dark theme.
 
 ## Status
 
@@ -102,27 +105,33 @@ the TV. The TV keeps its own volume, so use the TV remote to change it.
 
 To stop mirroring, click **Stop mirroring**. Closing the window also stops mirroring.
 
-### Change what the tiles do
+### Change picture and sound settings
 
-Click a tile to turn it on or off, or to pick a value. The window remembers your TV and your
-choices in `%APPDATA%\AirMirror\settings.json`.
+Choose **Screen** to pick a monitor. Use the checkboxes for sound, speaker mute and keeping the
+screen awake. Expand **Quality & audio settings** for quality, encoder and audio source.
+Use Tab to move between controls and Space to activate a button or checkbox. The window
+remembers your TV and your choices in `%APPDATA%\AirMirror\settings.json`.
 
 After a session ends, the Samsung can stop announcing itself on the network for a few minutes.
 The window still shows the last TV you mirrored to. When you click **Start mirroring**, it asks
 that TV for its AirPlay port directly, and it keeps asking until the TV answers or you click
 **Cancel**.
 
-| Tile | What it does |
+| Control | What it does |
 |---|---|
-| **TV sound** | Sends the PC's sound to the TV. To capture a device other than the default output, click the arrow on the tile. |
-| **Mute PC** | Mutes the PC's speakers while mirroring, then restores them. The TV still gets the sound. |
-| **Screen on** | Keeps the PC's monitor awake while mirroring, so the TV picture doesn't freeze. |
+| **TV sound** | Sends the PC's sound to the TV. To capture another output, choose **Audio source** under **Quality & audio settings**. |
+| **Mute PC while mirroring** | Mutes the PC's speakers while mirroring, then restores them. The TV still gets the sound. |
+| **Keep screen awake** | Keeps the PC's monitor awake while mirroring, so the TV picture doesn't freeze. |
 | **Quality** | **Auto** lets the TV choose. **Smooth** sends 30 fps at 8 Mbps. **Weak Wi-Fi** sends 30 fps at 3 Mbps. |
 | **Encoder** | **NVENC** uses an NVIDIA graphics card. **Software** uses the CPU. **Auto** lets the sender choose. On a PC with an NVIDIA driver, the window starts on **NVENC**. |
 | **Screen** | Picks which monitor to mirror. |
 
-You can't change **TV sound**, **Quality**, **Encoder**, or **Screen** while mirroring. To
-change them, stop mirroring first. **Log** at the bottom opens the sender's log.
+Stop mirroring to change **TV sound**, **Quality**, **Encoder**, or **Audio source**.
+You can change **Screen** during a session; the app reconnects to the TV with the selected
+display and may ask for a new pairing code. **Open log** at the bottom opens the sender's log.
+
+The app and its shortcuts use the blue Cast icon (`airmirror-cast.ico`). When updating an
+older checkout, rerun `.\shortcut.ps1` to update the shortcuts to the new icon filename.
 
 ### Mirror from the command line
 
@@ -163,10 +172,11 @@ the new code the TV shows.
 
 **The picture appears, then the TV goes back to its previous input.** On the Samsung that was
 tested, this happened once with software encoding and not with NVENC. Restart the TV and set
-the **Encoder** tile to **NVENC**, or use `-hwaccel nvenc`. The cause isn't confirmed yet.
+**Encoder** under **Quality & audio settings** to **NVENC**, or use `-hwaccel nvenc`.
+The cause isn't confirmed yet.
 
-**The bar says "Restart".** The sender stopped. Click the bar to start it again. If it stops
-again, click **Log** and check the last lines.
+**The button says "Restart sender".** The sender stopped. Click it to start the sender again.
+If it stops again, click **Open log** and check the last lines.
 
 **The TV is found, but the connection fails.** Windows Firewall may be blocking
 `open-airplay.exe`. Open **Windows Security > Firewall & network protection > Allow an app
@@ -209,7 +219,7 @@ PowerShell window.
   encoding (libx264) hasn't been tested on the TV since the first attempt, which failed.
 - The app never changes the TV's volume. Use the TV remote.
 - The PC monitor must stay awake. Windows turns it off after its idle timeout, and the TV picture
-  then freezes. In the AirMirror window, the **Screen on** tile keeps the monitor awake while
+  then freezes. In the AirMirror window, **Keep screen awake** keeps the monitor awake while
   mirroring. From the command line, change the idle timeout in Windows' power settings.
 - The tested TV accepts up to 1920x1080, so a 1440p desktop is scaled down to fit.
 - Streaming apps that protect their video can show a black area on the TV.

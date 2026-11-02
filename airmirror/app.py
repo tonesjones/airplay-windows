@@ -1,7 +1,7 @@
 """AirMirror window: pick a TV, press Start, see the desktop on the TV.
 
-The layout follows Windows 11 quick settings: a TV picker, a Start/Stop bar and six tiles,
-all drawn on one canvas that is redrawn from state on every change.
+The Quiet controller keeps TV and screen selection up front, with less-used options
+behind a disclosure. Standard tkinter controls support mouse and keyboard use.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ import time
 import tkinter as tk
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from tkinter import font as tkfont
 from tkinter import simpledialog
 from typing import NamedTuple
 
@@ -37,11 +36,10 @@ MENU_TILES = ("quality", "encoder", "display")
 DEFAULT_AUDIO = "Default output"
 REFRESH_MS = 5000
 HINT_MS = 4000
-AIR_MS = 50  # frame time of the air lines that drift across the Start bar while connecting
 PROBE_RETRY_S = 15  # wait between direct scans of a TV that mDNS doesn't list
 MAX_LOG_LINES = 1000
 MAX_RECENT_TVS = 5
-WIDTH, HEIGHT = 400, 430
+WIDTH = 400
 SETTINGS_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "AirMirror" / "settings.json"
 
 # Segoe Fluent Icons / MDL2 Assets code points.
@@ -180,7 +178,6 @@ class App:
         self._error_text: str | None = None
         self.speaker: SpeakerMute | None = None
         self.awake = False
-        self.hover: str | None = None
         self.probing = False
         self.last_probe = 0.0
         self.probed: tuple[str, int] | None = None  # (ip, port) a direct scan found
@@ -189,7 +186,7 @@ class App:
         self.switching: str | None = None  # "stopping", then "starting", while changing screens
         self.hint: str | None = None
         self.hint_id: str | None = None
-        self.air_id: str | None = None
+        self.details_open = False
         if self.settings["tv_ip"]:
             # Show the last TV right away: it can stay silent over mDNS for minutes.
             self.tv = {
@@ -201,13 +198,7 @@ class App:
         self.dark = ui.windows_uses_dark()
         self.c = ui.DARK if self.dark else ui.LIGHT
         self.scale = root.winfo_fpixels("1i") / 96
-        self.icons = ui.icon_font(root)
-        self.shapes = ui.Shapes(root)
-        self.canvas = tk.Canvas(root, highlightthickness=0, bd=0)
-        self.canvas.pack()
-        self.canvas.bind("<Button-1>", self._click)
-        self.canvas.bind("<Motion>", self._motion)
-        self.canvas.bind("<Leave>", lambda _e: self._set_hover(None))
+        self._build_ui()
 
         root.title("AirMirror")
         root.iconbitmap(default=str(ICON_PATH))
@@ -215,6 +206,7 @@ class App:
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.close)
         ui.match_title_bar(root, self.dark)
+        ui.set_window_icon(root, str(ICON_PATH))
         self.render()
         self._start_sender()
         root.after(100, self._pump)
@@ -267,158 +259,208 @@ class App:
             self._log(f"[settings] {exc}")
         self.render()
 
-    # -- drawing ----------------------------------------------------------
+    # -- layout -----------------------------------------------------------
     def px(self, n: float) -> int:
         return round(n * self.scale)
 
-    def _box(self, x0, y0, x1, y1, radius, color, tag=()) -> None:
-        img = self.shapes.get(self.px(x1 - x0), self.px(y1 - y0), self.px(radius), color)
-        self.canvas.create_image(self.px(x0), self.px(y0), image=img, anchor="nw", tags=tag)
-
-    def _text(self, x, y, text, color, size=10, bold=False, anchor="w", tag=(), icon=False):
-        family = self.icons if icon else "Segoe UI"
-        font = (family, size, "bold") if bold else (family, size)
-        self.canvas.create_text(
-            self.px(x), self.px(y), text=text, fill=color, font=font, anchor=anchor, tags=tag
+    def _button(self, parent, text, command, **kwargs) -> tk.Button:
+        c = self.c
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            font=("Segoe UI", 10),
+            bg=c["card"],
+            fg=c["text"],
+            activebackground=c["card_hover"],
+            activeforeground=c["text"],
+            disabledforeground=c["muted"],
+            relief="flat",
+            bd=0,
+            padx=self.px(10),
+            pady=self.px(8),
+            highlightthickness=2,
+            highlightbackground=c["bg"],
+            highlightcolor=c["accent"],
+            cursor="hand2",
+            **kwargs,
         )
 
-    def _fit(self, text: str, size: int, width: float, bold=False) -> str:
-        font = tkfont.Font(family="Segoe UI", size=size, weight="bold" if bold else "normal")
-        limit = self.px(width)
-        if font.measure(text) <= limit:
-            return text
-        while text and font.measure(text + "…") > limit:
-            text = text[:-1]
-        return text + "…"
+    def _label(self, parent, text, size=10, muted=False, bold=False) -> tk.Label:
+        return tk.Label(
+            parent,
+            text=text,
+            font=("Segoe UI", size, "bold" if bold else "normal"),
+            bg=self.c["bg"],
+            fg=self.c["muted"] if muted else self.c["text"],
+            anchor="w",
+            justify="left",
+            wraplength=self.px(WIDTH - 52),
+        )
+
+    def _build_ui(self) -> None:
+        c = self.c
+        self.panel = tk.Frame(self.root, bg=c["bg"], padx=self.px(24), pady=self.px(20))
+        self.panel.pack(fill="both", expand=True)
+        self.panel.columnconfigure(0, weight=1, minsize=self.px(WIDTH - 48))
+        self._label(self.panel, "AirMirror", 11, bold=True).grid(sticky="w")
+        self._label(self.panel, "Your desktop. On TV.", 20, bold=True).grid(
+            sticky="w", pady=(self.px(18), self.px(4))
+        )
+        self._label(self.panel, "Pick a screen and start mirroring.", muted=True).grid(
+            sticky="w", pady=(0, self.px(20))
+        )
+        self._label(self.panel, "Mirror to", 9, muted=True).grid(sticky="w")
+        self.tv_button = self._button(
+            self.panel,
+            "Looking for TVs…",
+            self._open_tv_menu,
+            anchor="w",
+            wraplength=self.px(WIDTH - 80),
+        )
+        self.tv_button.grid(sticky="ew", pady=(self.px(4), self.px(10)))
+        self.controls = {}
+        screen_row = tk.Frame(self.panel, bg=c["bg"])
+        screen_row.grid(sticky="ew")
+        screen_row.columnconfigure(1, weight=1)
+        self._label(screen_row, "Screen").grid(row=0, column=0, sticky="w")
+        self.controls["display"] = self._button(
+            screen_row, "Main", lambda: self._press_tile("display", None), anchor="e"
+        )
+        self.controls["display"].grid(row=0, column=1, sticky="e")
+        self.toggle_vars = {}
+        for key, title in (
+            ("sound", "TV sound"),
+            ("mute_pc", "Mute PC while mirroring"),
+            ("keep_awake", "Keep screen awake"),
+        ):
+            var = tk.BooleanVar(self.root)
+            self.toggle_vars[key] = var
+            control = tk.Checkbutton(
+                self.panel,
+                text=title,
+                variable=var,
+                command=lambda k=key: self._press_tile(k, None),
+                font=("Segoe UI", 10),
+                bg=c["bg"],
+                fg=c["text"],
+                activebackground=c["bg"],
+                activeforeground=c["text"],
+                selectcolor=c["card"],
+                disabledforeground=c["muted"],
+                anchor="w",
+                padx=0,
+                pady=self.px(5),
+                highlightthickness=2,
+                highlightbackground=c["bg"],
+                highlightcolor=c["accent"],
+                cursor="hand2",
+            )
+            control.grid(sticky="ew", pady=(self.px(4), 0))
+            self.controls[key] = control
+        self.details_button = self._button(
+            self.panel, "Quality & audio settings  ▸", self._toggle_details, anchor="w"
+        )
+        self.details_button.configure(bg=c["bg"], fg=c["muted"])
+        self.details_button.grid(sticky="ew", pady=(self.px(12), 0))
+        self.details = tk.Frame(self.panel, bg=c["bg"])
+        self.details.grid(sticky="ew")
+        self.details.columnconfigure(1, weight=1)
+        for row, (key, title) in enumerate(
+            (("quality", "Quality"), ("encoder", "Encoder"), ("audio", "Audio source"))
+        ):
+            self._label(self.details, title).grid(row=row, column=0, sticky="w")
+            command = (
+                self._open_sound_menu if key == "audio" else lambda k=key: self._press_tile(k, None)
+            )
+            self.controls[key] = self._button(
+                self.details, "", command, anchor="e", wraplength=self.px(205)
+            )
+            self.controls[key].grid(row=row, column=1, sticky="e", pady=self.px(3))
+        self.start_button = self._button(self.panel, "Start mirroring", self._press_start)
+        self.start_button.configure(font=("Segoe UI", 11, "bold"), pady=self.px(11))
+        self.start_button.grid(sticky="ew", pady=(self.px(20), self.px(10)))
+        self.status_label = self._label(self.panel, "Starting…", 9, muted=True)
+        self.status_label.grid(sticky="ew")
+        self.summary_label = self._label(self.panel, "", 9, muted=True)
+        self.summary_label.grid(sticky="ew")
+        tk.Frame(self.panel, bg=c["line"], height=1).grid(
+            sticky="ew", pady=(self.px(14), self.px(10))
+        )
+        footer = tk.Frame(self.panel, bg=c["bg"])
+        footer.grid(sticky="ew")
+        footer.columnconfigure(0, weight=1)
+        self._label(footer, "Whole desktop and audio", 9, muted=True).grid(sticky="w")
+        self.log_button = self._button(footer, "Open log", self._show_log)
+        self.log_button.configure(bg=c["bg"], fg=c["muted"], font=("Segoe UI", 9))
+        self.log_button.grid(row=0, column=1, sticky="e")
+        # Reserve the details row before hiding it so expansion cannot overlap Start.
+        self.details.grid_remove()
+
+    def _open_tv_menu(self) -> None:
+        if not self.active:
+            self._popup(None, self._tv_menu(), self.tv_button)
+
+    def _open_sound_menu(self) -> None:
+        if self.audio_capable and not self.active:
+            self._popup(None, self._sound_menu(), self.controls["audio"])
+
+    def _toggle_details(self) -> None:
+        self.details_open = not self.details_open
+        if self.details_open:
+            self.details.grid()
+        else:
+            self.details.grid_remove()
+        self.details_button.configure(
+            text="Quality & audio settings  " + ("▾" if self.details_open else "▸")
+        )
 
     def render(self) -> None:
-        c, cv = self.c, self.canvas
-        cv.delete("all")
-        cv.configure(width=self.px(WIDTH), height=self.px(HEIGHT), bg=c["bg"])
-        self._draw_picker()
-        self._draw_start_bar()
-        self._draw_tiles()
-        if self._air_moving() and not self.air_id:
-            self.air_id = self.root.after(AIR_MS, self._animate_air)
-
-        y = 374
-        cv.create_line(self.px(16), self.px(y), self.px(WIDTH - 16), self.px(y), fill=c["line"])
-        text, dot = self._status()
-        lines = self._wrap(text, 9, WIDTH - 100)
-        dot_y = y + 28 - 8 * (len(lines) - 1)  # beside the first line
-        cv.create_oval(
-            self.px(20), self.px(dot_y - 4), self.px(28), self.px(dot_y + 4), fill=dot, outline=""
+        c = self.c
+        name = (
+            self.tv.get("name", "TV")
+            if self.tv
+            else "No TV found yet"
+            if self.searched
+            else "Looking for TVs…"
         )
-        self._text(36, y + 28, "\n".join(lines), c["muted"], size=9)
-        link = c["accent_hover"] if self.hover == "log" else c["accent"]
-        self._text(WIDTH - 20, y + 28, "Log", link, size=9, anchor="e", tag="log")
-
-    def _wrap(self, text: str, size: int, width: float, max_lines: int = 2) -> list[str]:
-        font = tkfont.Font(family="Segoe UI", size=size)
-        lines = [""]
-        for word in text.split():
-            joined = f"{lines[-1]} {word}".strip()
-            if font.measure(joined) <= self.px(width) or not lines[-1]:
-                lines[-1] = joined
+        self.tv_button.configure(text=name + "  ▾", state="disabled" if self.active else "normal")
+        for tile in self._tiles():
+            control = self.controls[tile.key]
+            control.configure(state="normal" if tile.enabled else "disabled")
+            if tile.key in self.toggle_vars:
+                self.toggle_vars[tile.key].set(tile.on)
             else:
-                lines.append(word)
-        if len(lines) > max_lines:
-            lines = lines[: max_lines - 1] + [" ".join(lines[max_lines - 1 :])]
-        return [self._fit(line, size, width) for line in lines]
-
-    def _draw_picker(self) -> None:
-        c = self.c
-        locked = self.active
-        hovered = self.hover == "tv" and not locked
-        self._box(16, 16, WIDTH - 16, 64, 10, c["card_hover"] if hovered else c["card"], "tv")
-        ink = c["muted"] if locked else c["text"]
-        self._text(36, 40, GLYPH["tv"], ink, size=14, tag="tv", icon=True)
-        if self.tv:
-            name = self.tv.get("name", "TV")
-        elif self.searched:
-            name = "No TV found yet"
-        else:
-            name = "Looking for TVs…"
-        self._text(
-            66, 40, self._fit(name, 11, WIDTH - 190, bold=True), ink, size=11, bold=True, tag="tv"
+                value = tile.sub
+                if tile.key == "display":
+                    value = f"Screen {(self._display_index() or 0) + 1} — {value}"
+                control.configure(text=value + "  ▾")
+        audio_name = next(
+            (d["name"] for d in self.audio_devices if d["id"] == self.settings["audio_id"]),
+            DEFAULT_AUDIO,
         )
-        if not locked:
-            self._text(
-                WIDTH - 36, 40, GLYPH["down"], c["muted"], size=10, anchor="e", tag="tv", icon=True
-            )
-
-    def _draw_start_bar(self) -> None:
-        c = self.c
-        hovered = self.hover == "start"
-        tv = self.target_name or "the TV"
+        self.controls["audio"].configure(
+            text=audio_name + "  ▾",
+            state="normal" if self.audio_capable and not self.active else "disabled",
+        )
         if self.sender_dead:
-            fill, ink = c["card_hover"] if hovered else c["card"], c["text"]
-            title, sub = "Restart", "The sender stopped. Click to start it again."
-        elif self.switching:
-            fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
-            title, sub = "Cancel", f"Switching to the {self._display_label()} screen…"
-        elif self.streaming:
-            fill, ink = c["green_hover"] if hovered else c["green"], c["on_accent"]
-            title, sub = "Stop mirroring", self._stream_summary()
-        elif self.active and self.start_when_found:
-            fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
-            title, sub = "Cancel", f"Looking for {tv}…  {self._elapsed(self.connect_started)}"
-        elif self.active:
-            fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
-            title, sub = "Cancel", f"Connecting to {tv}…"
-        elif self.tv:
-            fill, ink = c["accent_hover"] if hovered else c["accent"], c["on_accent"]
-            source = f"{self._display_label()} screen" if len(self.displays) > 1 else "This PC"
-            title, sub = "Start mirroring", f"{source} to {self.tv.get('name', 'the TV')}"
+            title = "Restart sender"
+        elif self.active or self.switching:
+            title = "Stop mirroring" if self.streaming and not self.switching else "Cancel"
         else:
-            fill, ink = c["card"], c["muted"]
-            title, sub = "Start mirroring", "Pick a TV first"
-        self._box(16, 80, WIDTH - 16, 152, 14, fill, "start")
-        if self._air_moving():
-            self._draw_air(ink)
-        else:
-            self._text(40, 116, GLYPH["power"], ink, size=22, tag="start", icon=True)
-        self._text(84, 104, title, ink, size=13, bold=True, tag="start")
-        self._text(84, 130, self._fit(sub, 9, WIDTH - 120), ink, size=9, tag="start")
-
-    def _air_moving(self) -> bool:
-        """Connecting, scanning or switching screens, but not waiting for a code."""
-        return (
-            (self.switching is not None or (self.active and not self.streaming))
-            and not self.pin_dialog
-            and not self.sender_dead
+            title = "Start mirroring"
+        stopping = self.streaming and not self.switching
+        self.start_button.configure(
+            text=title,
+            bg=c["card"] if stopping else c["accent"],
+            fg=c["red"] if stopping else c["on_accent"],
+            activebackground=c["card_hover"] if stopping else c["accent_hover"],
+            activeforeground=c["red"] if stopping else c["on_accent"],
+            state="normal" if self.tv or self.active or self.sender_dead else "disabled",
         )
-
-    def _draw_air(self, ink: str) -> None:
-        """Three air lines blowing left to right where the power icon sits."""
-        left, right = 22, 62
-        now = time.monotonic()
-        for y, length, speed, offset in ((106, 16, 34, 0), (116, 22, 26, 17), (126, 14, 40, 31)):
-            x0 = left - length + (now * speed + offset) % (right - left + length)
-            x0, x1 = max(x0, left), min(x0 + length, right)
-            if x1 - x0 > 1:
-                self.canvas.create_line(
-                    self.px(x0),
-                    self.px(y),
-                    self.px(x1),
-                    self.px(y),
-                    fill=ink,
-                    width=self.px(3),
-                    capstyle="round",
-                    tags=("start", "air"),
-                )
-
-    def _animate_air(self) -> None:
-        if self.closing or not self._air_moving():
-            self.air_id = None
-            self.render()
-            return
-        if self.start_when_found:
-            self.render()  # the elapsed time in the bar
-        else:
-            self.canvas.delete("air")
-            self._draw_air(self.c["on_accent"])
-        self.air_id = self.root.after(AIR_MS, self._animate_air)
+        text, color = self._status()
+        self.status_label.configure(text=text, fg=color)
+        self.summary_label.configure(text=self._stream_summary() if self.streaming else "")
 
     @staticmethod
     def _elapsed(since: float) -> str:
@@ -434,7 +476,7 @@ class App:
         if self.sender and self.sender.resolution:
             parts.append("{}×{}".format(*self.sender.resolution))
         parts.append("sound on" if self.settings["sound"] and self.audio_capable else "no sound")
-        return "  ·  ".join(parts)
+        return "  /  ".join(parts)
 
     def _tiles(self) -> list[Tile]:
         s, locked = self.settings, self.active
@@ -490,52 +532,6 @@ class App:
         """Disabled only until mirroring stops (TV sound without audio support never unlocks)."""
         return not enabled and self.active and (key != "sound" or self.audio_capable)
 
-    def _draw_tiles(self) -> None:
-        c = self.c
-        tw, th, gap = (WIDTH - 32 - 24) / 3, 88, 12
-        for i, (key, glyph, title, sub, on, enabled) in enumerate(self._tiles()):
-            x0 = 16 + (i % 3) * (tw + gap)
-            y0 = 166 + (i // 3) * (th + gap)
-            tag = f"tile:{key}"
-            hovered = enabled and self.hover == tag
-            if on:
-                fill = c["accent_hover"] if hovered else c["accent"]
-                ink = sub_ink = c["on_accent"]
-            else:
-                fill = c["card_hover"] if hovered else c["card"]
-                ink, sub_ink = (c["text"], c["muted"]) if enabled else (c["muted"], c["muted"])
-            self._box(x0, y0, x0 + tw, y0 + th, 12, fill, tag)
-            self._text(x0 + 14, y0 + 22, glyph, ink, size=15, tag=tag, icon=True)
-            self._text(x0 + 14, y0 + 52, title, ink, size=10, bold=True, tag=tag)
-            self._text(x0 + 14, y0 + 71, self._fit(sub, 9, tw - 24), sub_ink, size=9, tag=tag)
-            corner = None
-            if self._locked(key, enabled):
-                corner = GLYPH["lock"]
-            elif key in MENU_TILES:
-                corner = GLYPH["down"]
-            if corner:
-                self._text(
-                    x0 + tw - 14, y0 + 22, corner, sub_ink, size=9, anchor="e", tag=tag, icon=True
-                )
-            if key == "sound" and enabled:
-                # Split tile, as in Windows quick settings: the body toggles, the chevron opens
-                # the sound device menu.
-                chev = "chev:sound"
-                shade = c["accent_dim"] if on else c["line"]
-                if self.hover == chev:
-                    shade = c["accent_hover"] if on else c["card_hover"]
-                self._box(x0 + tw - 34, y0 + 8, x0 + tw - 8, y0 + 34, 8, shade, chev)
-                self._text(
-                    x0 + tw - 21,
-                    y0 + 21,
-                    GLYPH["right"],
-                    ink,
-                    size=9,
-                    anchor="center",
-                    tag=chev,
-                    icon=True,
-                )
-
     def _display_label(self) -> str:
         index = self._display_index()
         if index is None:
@@ -569,36 +565,7 @@ class App:
             return "No TV found. Is it on? Click the TV box for options.", c["muted"]
         if not self.tv:
             return "Looking for AirPlay TVs on your network…", c["muted"]
-        return "Ready. The TV shows a code the first time.", c["muted"]
-
-    # -- mouse ------------------------------------------------------------
-    def _tag_at_pointer(self) -> str | None:
-        for tag in self.canvas.gettags("current"):
-            if tag != "current":
-                return tag
-        return None
-
-    def _motion(self, _event) -> None:
-        self._set_hover(self._tag_at_pointer())
-
-    def _set_hover(self, tag: str | None) -> None:
-        if tag != self.hover:
-            self.hover = tag
-            self.canvas.configure(cursor="hand2" if tag else "")
-            self.render()
-
-    def _click(self, event) -> None:
-        tag = self._tag_at_pointer()
-        if tag == "tv" and not self.active:
-            self._popup(event, self._tv_menu())
-        elif tag == "start":
-            self._press_start()
-        elif tag == "log":
-            self._show_log()
-        elif tag == "chev:sound":
-            self._popup(event, self._sound_menu())
-        elif tag and tag.startswith("tile:"):
-            self._press_tile(tag[5:], event)
+        return "Ready. Your TV may show a pairing code.", c["muted"]
 
     def _press_start(self) -> None:
         if self.sender_dead:
@@ -625,11 +592,17 @@ class App:
             if self.streaming:
                 self._keep_awake(self.settings["keep_awake"])
         elif key == "quality":
-            self._popup(event, self._choice_menu("quality", [(q, q) for q in QUALITY]))
+            self._popup(
+                event,
+                self._choice_menu("quality", [(q, q) for q in QUALITY]),
+                self.controls[key],
+            )
         elif key == "encoder":
-            self._popup(event, self._choice_menu("encoder", list(ENCODERS.items())))
+            self._popup(
+                event, self._choice_menu("encoder", list(ENCODERS.items())), self.controls[key]
+            )
         elif key == "display":
-            self._popup(event, self._display_menu())
+            self._popup(event, self._display_menu(), self.controls[key])
 
     def _show_hint(self, text: str) -> None:
         if self.hint_id:
@@ -678,9 +651,14 @@ class App:
             font=("Segoe UI", 9),
         )
 
-    def _popup(self, event, menu: tk.Menu) -> None:
+    def _popup(self, event, menu: tk.Menu, anchor=None) -> None:
+        if event is None:
+            anchor = anchor or self.root.focus_get() or self.details_button
+            x, y = anchor.winfo_rootx(), anchor.winfo_rooty() + anchor.winfo_height()
+        else:
+            x, y = event.x_root, event.y_root
         try:
-            menu.tk_popup(event.x_root, event.y_root)
+            menu.tk_popup(x, y)
         finally:
             menu.grab_release()
 
