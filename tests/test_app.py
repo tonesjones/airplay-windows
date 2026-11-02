@@ -286,3 +286,41 @@ def test_locked_tile_explains_itself(app):
     app._press_tile("quality", None)
     assert app.hint == "Stop mirroring to change Quality."
     assert app._status()[0] == app.hint
+
+
+def test_quiet_controller_disclosure_and_visible_toggles(app):
+    assert pump(app.root, lambda: app.audio_capable and app.displays)
+    assert not app.details.winfo_ismapped()
+    app.details_button.invoke()
+    app.root.update()
+    assert app.details.winfo_ismapped()
+    assert app.details.winfo_rooty() + app.details.winfo_height() <= app.start_button.winfo_rooty()
+    app.controls["sound"].invoke()
+    assert not app.settings["sound"]
+    assert not app._options()["audio"]
+    app.controls["mute_pc"].invoke()
+    assert not app.settings["mute_pc"]
+    app.render()  # Sender updates must not collapse the user's settings.
+    assert app.details.winfo_ismapped()
+    app.details_button.invoke()
+    app.root.update()
+    assert not app.details.winfo_ismapped()
+
+
+def test_quiet_controller_buttons_follow_session_state(app):
+    assert pump(app.root, lambda: app.audio_capable and app.displays)
+    app.start_button.invoke()
+    assert pump(app.root, lambda: app.pin_dialog is not None)
+    assert app.start_button.cget("text") == "Cancel"
+    assert app.tv_button.cget("state") == "disabled"
+    assert app.controls["quality"].cget("state") == "disabled"
+    assert app.controls["audio"].cget("state") == "disabled"
+    enter_code(app, "1234")
+    assert pump(app.root, lambda: app.streaming)
+    assert app.start_button.cget("text") == "Stop mirroring"
+    assert app.controls["display"].cget("state") == "normal"
+    assert app.controls["mute_pc"].cget("state") == "normal"
+    app.start_button.invoke()
+    assert pump(app.root, lambda: not app.active)
+    assert app.start_button.cget("text") == "Start mirroring"
+    assert app.controls["quality"].cget("state") == "normal"
